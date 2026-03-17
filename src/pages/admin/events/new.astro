@@ -1,0 +1,222 @@
+---
+import AdminDashboardLayout from "@layouts/AdminDashboardLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../convex/_generated/api";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const callerUser = await client.query(api.users.getUserByClerkId, { clerkId: userId });
+if (!callerUser || callerUser.role !== "admin") return Astro.redirect("/");
+
+let formError: string | null = null;
+
+if (Astro.request.method === "POST") {
+  const data = await Astro.request.formData();
+
+  const title = (data.get("title") as string | null)?.trim() ?? "";
+  const dateStr = (data.get("date") as string | null)?.trim() ?? "";
+  const type = (data.get("type") as string | null)?.trim() ?? "";
+  const targetAgeGroup = (data.get("targetAgeGroup") as string | null)?.trim() || undefined;
+  const location = (data.get("location") as string | null)?.trim() || undefined;
+  const durationStr = (data.get("durationMinutes") as string | null)?.trim() || "";
+  const notes = (data.get("notes") as string | null)?.trim() || undefined;
+
+  if (!title) {
+    formError = "Title is required.";
+  } else if (!dateStr) {
+    formError = "Date and time are required.";
+  } else if (!type) {
+    formError = "Event type is required.";
+  } else {
+    const date = new Date(dateStr).getTime();
+    if (isNaN(date)) {
+      formError = "Invalid date/time value.";
+    } else {
+      const validTypes = ["program_training", "individual_practice", "game", "other", "speed_series", "shootaround", "team_practice", "scrimmage", "festival"] as const;
+      type ValidType = typeof validTypes[number];
+      if (!validTypes.includes(type as ValidType)) {
+        formError = "Invalid event type.";
+      } else {
+        const validAgeGroups = ["U6", "U8", "U12", "U14"] as const;
+        type ValidAgeGroup = typeof validAgeGroups[number];
+        const resolvedAgeGroup =
+          targetAgeGroup && validAgeGroups.includes(targetAgeGroup as ValidAgeGroup)
+            ? (targetAgeGroup as ValidAgeGroup)
+            : undefined;
+
+        const createdId = await client.mutation(api.events.createEvent, {
+          title,
+          date,
+          type: type as ValidType,
+          targetAgeGroup: resolvedAgeGroup,
+          location,
+          durationMinutes: durationStr ? parseInt(durationStr, 10) : undefined,
+          notes,
+        });
+        return Astro.redirect(`/admin/events/${createdId}`);
+      }
+    }
+  }
+}
+---
+
+<AdminDashboardLayout title="New Event" currentTab="events" breadcrumbs={[{ name: "Events", href: "/admin/events" }, { name: "New Event", href: "/admin/events/new" }]}>
+
+  <div class="mb-6">
+    <a href="/admin/events" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 010 1.06L8.06 10l3.72 3.72a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0Z" clip-rule="evenodd" />
+      </svg>
+      Back to Events
+    </a>
+  </div>
+
+  {formError && (
+    <div class="mb-6 rounded-md bg-red-50 p-4">
+      <p class="text-sm text-red-700">{formError}</p>
+    </div>
+  )}
+
+  <div class="bg-white shadow-sm rounded-xl ring-1 ring-gray-900/5 px-6 py-8 sm:px-8 max-w-2xl">
+    <form method="POST" class="space-y-6" id="eventForm">
+
+      <!-- Title -->
+      <div>
+        <label for="title" class="block text-sm font-medium text-gray-900">
+          Title <span class="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          id="title"
+          name="title"
+          required
+          placeholder="e.g. Tuesday Practice"
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </div>
+
+      <!-- Date + Time -->
+      <div>
+        <label for="date" class="block text-sm font-medium text-gray-900">
+          Date &amp; Time <span class="text-red-500">*</span>
+        </label>
+        <input
+          type="datetime-local"
+          id="date"
+          name="date"
+          required
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </div>
+
+      <!-- Type -->
+      <div>
+        <label for="type" class="block text-sm font-medium text-gray-900">
+          Type <span class="text-red-500">*</span>
+        </label>
+        <select
+          id="type"
+          name="type"
+          required
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >
+          <option value="">Select type…</option>
+          <option value="program_training">Program Training (all age groups)</option>
+          <option value="speed_series">Speed Series (shared stations, no age split)</option>
+          <option value="individual_practice">Individual Practice (one age group)</option>
+          <option value="team_practice">Team Practice (per age group sections)</option>
+          <option value="shootaround">Shootaround (flat drill list + playlist)</option>
+          <option value="game">Game</option>
+          <option value="scrimmage">Scrimmage</option>
+          <option value="festival">Festival</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      <!-- Target Age Group (shown only for individual_practice) -->
+      <div id="ageGroupRow" class="hidden">
+        <label for="targetAgeGroup" class="block text-sm font-medium text-gray-900">
+          Target Age Group
+        </label>
+        <select
+          id="targetAgeGroup"
+          name="targetAgeGroup"
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >
+          <option value="">Select age group…</option>
+          <option value="U6">U6</option>
+          <option value="U8">U8</option>
+          <option value="U12">U12</option>
+          <option value="U14">U14</option>
+        </select>
+      </div>
+
+      <!-- Location -->
+      <div>
+        <label for="location" class="block text-sm font-medium text-gray-900">Location</label>
+        <input
+          type="text"
+          id="location"
+          name="location"
+          placeholder="e.g. Turf Field 1"
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </div>
+
+      <!-- Duration -->
+      <div>
+        <label for="durationMinutes" class="block text-sm font-medium text-gray-900">
+          Duration (minutes)
+        </label>
+        <input
+          type="number"
+          id="durationMinutes"
+          name="durationMinutes"
+          value="90"
+          min="1"
+          max="480"
+          class="mt-2 block w-40 rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </div>
+
+      <!-- Notes -->
+      <div>
+        <label for="notes" class="block text-sm font-medium text-gray-900">Notes</label>
+        <textarea
+          id="notes"
+          name="notes"
+          rows="3"
+          placeholder="Any additional notes…"
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        ></textarea>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+        <a href="/admin/events" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
+        <button
+          type="submit"
+          class="rounded-md bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+        >
+          Create Event
+        </button>
+      </div>
+
+    </form>
+  </div>
+
+</AdminDashboardLayout>
+
+<script>
+  const typeSelect = document.getElementById("type") as HTMLSelectElement;
+  const ageGroupRow = document.getElementById("ageGroupRow") as HTMLElement;
+
+  function toggleAgeGroup() {
+    ageGroupRow.classList.toggle("hidden", typeSelect.value !== "individual_practice");
+  }
+
+  typeSelect.addEventListener("change", toggleAgeGroup);
+  toggleAgeGroup();
+</script>

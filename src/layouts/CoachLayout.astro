@@ -1,0 +1,107 @@
+---
+import '../styles/global.css';
+import Breadcrumb from '../components/Breadcrumb.astro';
+
+interface Props {
+  title: string;
+  currentTab: "home" | "practice" | "log" | "drills";
+  breadcrumbs?: { name: string; href: string }[];
+}
+
+const { title, currentTab, breadcrumbs = [] } = Astro.props;
+
+const isReadOnly = Astro.locals.coachIsReadOnly ?? false;
+
+const tabs = [
+  { key: "home",     label: "Home",     href: "/coach" },
+  { key: "practice", label: "Practice", href: "/coach/practice/" },
+  { key: "log",      label: "Log",      href: "/coach/log" },
+  { key: "drills",   label: "Drills",   href: "/coach/drills" },
+] as const;
+---
+
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" href="/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+</head>
+<body class="h-full bg-gray-50">
+
+  <!-- Top bar -->
+  <div class="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+    <p class="text-base font-semibold text-gray-900">{title}</p>
+    <a
+      href="/profile"
+      class="flex items-center justify-center size-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+      aria-label="View profile"
+    >
+      <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+      </svg>
+    </a>
+  </div>
+
+  <Breadcrumb items={breadcrumbs} />
+
+  <!-- Pending approval banner (submitted coaches only) -->
+  {isReadOnly && (
+    <div class="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-start gap-2">
+      <svg class="size-4 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+      </svg>
+      <p class="text-xs text-amber-800">
+        Your application is pending review — write features are locked until an admin approves you.
+      </p>
+    </div>
+  )}
+
+  <!-- Main content -->
+  <main class="pb-24">
+    <slot />
+  </main>
+
+  <!-- Fixed bottom nav -->
+  <nav
+    class="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-10 flex"
+    style="padding-bottom: env(safe-area-inset-bottom)"
+  >
+    {tabs.map((tab) => {
+      const isActive = tab.key === currentTab;
+      return (
+        <a
+          href={tab.href}
+          class={`flex flex-col items-center py-2 min-h-11 text-xs font-medium flex-1 ${isActive ? "text-green-600" : "text-gray-500 hover:text-gray-700"}`}
+          aria-current={isActive ? "page" : undefined}
+        >
+          {tab.key === "home" && (
+            <svg class="size-6 mb-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+            </svg>
+          )}
+          {tab.key === "practice" && (
+            <svg class="size-6 mb-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
+            </svg>
+          )}
+          {tab.key === "log" && (
+            <svg class="size-6 mb-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+            </svg>
+          )}
+          {tab.key === "drills" && (
+            <svg class="size-6 mb-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.966 8.966 0 0 0-6 2.292m0-14.25v14.25" />
+            </svg>
+          )}
+          {tab.label}
+        </a>
+      );
+    })}
+  </nav>
+
+</body>
+</html>

@@ -1,0 +1,367 @@
+---
+import Layout from "@layouts/Layout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+
+const [convexUser, existing] = await Promise.all([
+  client.query(api.users.getUserByClerkId, { clerkId: userId }),
+  client.query(api.onboarding.getOnboardingByClerkId, { clerkId: userId }),
+]);
+
+// Redirect if already submitted or done
+if (convexUser?.onboardStatus === "submitted" || convexUser?.onboardStatus === "done") {
+  return Astro.redirect("/");
+}
+
+// Step guard: must have completed Step 3 (or be a legacy record with positions)
+const isLegacyRecord = !existing?.currentStep && existing?.positions && existing.positions.length > 0;
+if (!isLegacyRecord && (!existing || (existing.currentStep ?? 0) < 3)) {
+  return Astro.redirect("/get-started/games");
+}
+
+// Determine if Head Coach was selected (makes USA Lacrosse ID + certs required)
+const isHeadCoach = existing?.gamePositions?.includes("head_coach") ?? false;
+
+// Load active documents for acknowledgment
+const documents = await client.query(api.documents.listDocuments, {});
+
+// Handle POST: save compliance (Step 4)
+let formError: string | null = null;
+if (Astro.request.method === "POST") {
+  const formData = await Astro.request.formData();
+
+  const usaLacrosseId = (formData.get("usaLacrosseId") as string | null)?.trim() || undefined;
+
+  // Validate: Head Coach requires USA Lacrosse ID
+  if (isHeadCoach && !usaLacrosseId) {
+    formError = "USA Lacrosse Member ID is required because you selected Head Coach.";
+  } else {
+    // Parse uploaded certifications from hidden fields
+    const certUrls = formData.getAll("certUrl") as string[];
+    const certNames = formData.getAll("certName") as string[];
+    const certifications = certUrls.map((url, i) => ({
+      url,
+      name: certNames[i] ?? "Unnamed file",
+      uploadedAt: Date.now(),
+    }));
+
+    // Parse document acknowledgments
+    const acknowledgedIds = formData.getAll("docAck") as Id<"documents">[];
+
+    // Validate all active documents were acknowledged
+    const requiredDocIds = documents.map((d) => d._id);
+    const missingAck = requiredDocIds.some((id) => !acknowledgedIds.includes(id));
+    if (missingAck) {
+      formError = "You must read and acknowledge all documents before continuing.";
+    } else {
+      const documentAcknowledgments = acknowledgedIds.map((documentId) => ({
+        documentId,
+        acknowledgedAt: Date.now(),
+      }));
+
+      try {
+        await client.mutation(api.onboarding.saveCompliance, {
+          clerkId: userId,
+          usaLacrosseId,
+          certifications,
+          documentAcknowledgments,
+        });
+        return Astro.redirect("/get-started/success");
+      } catch (err) {
+        formError = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      }
+    }
+  }
+}
+---
+
+<Layout title="Get Started — Step 4" breadcrumbs={[{ name: "Get Started", href: "/get-started" }, { name: "Compliance", href: "/get-started/compliance" }]}>
+  <div class="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-2xl">
+
+      <!-- Progress indicator (4 steps) -->
+      <nav class="flex items-center justify-center mb-8" aria-label="Progress">
+        <ol class="flex items-center gap-2 sm:gap-4">
+          <li class="flex items-center">
+            <span class="flex size-8 items-center justify-center rounded-full bg-green-600 text-white text-sm font-semibold">
+              <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd" /></svg>
+            </span>
+            <span class="ml-2 text-sm font-medium text-green-600 hidden sm:inline">Background</span>
+          </li>
+          <svg class="size-4 text-gray-400 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" /></svg>
+          <li class="flex items-center">
+            <span class="flex size-8 items-center justify-center rounded-full bg-green-600 text-white text-sm font-semibold">
+              <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd" /></svg>
+            </span>
+            <span class="ml-2 text-sm font-medium text-green-600 hidden sm:inline">Practice</span>
+          </li>
+          <svg class="size-4 text-gray-400 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" /></svg>
+          <li class="flex items-center">
+            <span class="flex size-8 items-center justify-center rounded-full bg-green-600 text-white text-sm font-semibold">
+              <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd" /></svg>
+            </span>
+            <span class="ml-2 text-sm font-medium text-green-600 hidden sm:inline">Games</span>
+          </li>
+          <svg class="size-4 text-gray-400 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" /></svg>
+          <li class="flex items-center">
+            <span class="flex size-8 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-semibold">4</span>
+            <span class="ml-2 text-sm font-semibold text-indigo-600 hidden sm:inline">Compliance</span>
+          </li>
+        </ol>
+      </nav>
+
+      <div class="bg-white shadow-sm rounded-xl px-6 py-8 sm:px-8">
+        <div class="mb-6">
+          <h1 class="text-2xl font-bold text-gray-900">Compliance</h1>
+          <p class="mt-1 text-sm text-gray-500">Upload your certifications and acknowledge the organization's documents.</p>
+        </div>
+
+        {isHeadCoach && (
+          <div class="mb-6 rounded-md bg-blue-50 border border-blue-200 p-4">
+            <p class="text-sm text-blue-800">
+              <strong>Head Coach selected:</strong> USA Lacrosse Member ID and certifications are required for this role.
+            </p>
+          </div>
+        )}
+
+        {formError && (
+          <div class="mb-6 rounded-md bg-red-50 p-4">
+            <p class="text-sm text-red-700">{formError}</p>
+          </div>
+        )}
+
+        <form id="step4Form" method="POST" class="space-y-8">
+
+          <!-- USA Lacrosse Member ID -->
+          <div>
+            <label for="usaLacrosseId" class="block text-base font-semibold text-gray-900">
+              USA Lacrosse Member ID
+              {isHeadCoach
+                ? <span class="text-red-500"> *</span>
+                : <span class="ml-2 text-sm font-normal text-gray-400">(optional)</span>
+              }
+            </label>
+            {isHeadCoach
+              ? <p class="mt-1 text-sm text-red-600">Required because you selected Head Coach. Find yours at <span class="font-mono text-xs bg-red-50 px-1 py-0.5 rounded">usalacrosse.com</span>.</p>
+              : <p class="mt-1 text-sm text-gray-500">Only required if you plan to serve as Head Coach. Find yours at <span class="font-mono text-xs bg-gray-100 px-1 py-0.5 rounded">usalacrosse.com</span>.</p>
+            }
+            <input
+              type="text"
+              id="usaLacrosseId"
+              name="usaLacrosseId"
+              value={existing?.usaLacrosseId ?? ""}
+              placeholder="e.g. 1234567"
+              required={isHeadCoach}
+              class={`mt-2 block w-full rounded-md border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 ${isHeadCoach ? "border-red-300 focus:border-red-500 focus:ring-red-500" : "border-gray-300 focus:border-indigo-500 focus:ring-indigo-500"}`}
+            />
+          </div>
+
+          <!-- Certifications Upload -->
+          <div>
+            <p class="text-base font-semibold text-gray-900">
+              Certifications
+              {isHeadCoach
+                ? <span class="text-red-500"> *</span>
+                : <span class="ml-2 text-sm font-normal text-gray-400">(optional)</span>
+              }
+            </p>
+            {isHeadCoach
+              ? <p class="mt-1 text-sm text-red-600">Required for Head Coach: upload your coaching certifications, CPR card, and background check (PDF or image, max 8 MB each).</p>
+              : <p class="mt-1 text-sm text-gray-500">Upload copies of any coaching certifications, CPR cards, or background check results (PDF or image, max 8 MB each, up to 10 files).</p>
+            }
+
+            <!-- Hidden inputs for uploaded files (populated by JS) -->
+            <div id="certInputsContainer"></div>
+
+            <!-- File list -->
+            <ul id="certFileList" class="mt-3 space-y-2 text-sm text-gray-700"></ul>
+
+            <!-- Upload area -->
+            <div
+              id="uploadArea"
+              class="mt-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 px-6 py-10 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+            >
+              <svg class="mx-auto size-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+              </svg>
+              <p class="mt-2 text-sm text-gray-600">
+                <span id="uploadLabel" class="font-semibold text-indigo-600">Click to upload</span> or drag and drop
+              </p>
+              <p class="text-xs text-gray-500 mt-1">PDF, PNG, JPG up to 8 MB each</p>
+              <input
+                id="fileInput"
+                type="file"
+                multiple
+                accept=".pdf,image/*"
+                class="hidden"
+              />
+              <button
+                id="uploadBtn"
+                type="button"
+                class="mt-4 hidden rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
+              >
+                Upload selected files
+              </button>
+            </div>
+            <p id="uploadStatus" class="mt-2 text-sm text-gray-500 hidden"></p>
+          </div>
+
+          <!-- Document Acknowledgments -->
+          {documents.length > 0 && (
+            <div>
+              <p class="text-base font-semibold text-gray-900">Organization Documents <span class="text-red-500">*</span></p>
+              <p class="mt-1 text-sm text-gray-500">Read each document and check the box to acknowledge.</p>
+              <div class="mt-4 space-y-6">
+                {documents.map((doc) => (
+                  <div class="rounded-lg border border-gray-200 overflow-hidden">
+                    <details>
+                      <summary class="flex items-center justify-between px-4 py-3 bg-gray-50 cursor-pointer hover:bg-gray-100">
+                        <span class="text-sm font-semibold text-gray-900">{doc.title}</span>
+                        <svg class="size-4 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                        </svg>
+                      </summary>
+                      <div class="px-4 py-4 text-sm text-gray-700 prose prose-sm max-w-none whitespace-pre-wrap border-t border-gray-200">
+                        {doc.content}
+                      </div>
+                    </details>
+                    <label class="flex items-start gap-3 px-4 py-3 bg-white border-t border-gray-100 cursor-pointer hover:bg-gray-50 has-[:checked]:bg-green-50">
+                      <input
+                        type="checkbox"
+                        name="docAck"
+                        value={doc._id}
+                        required
+                        class="mt-0.5 size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                      />
+                      <span class="text-sm text-gray-700">
+                        I have read and agree to the <strong>{doc.title}</strong>.
+                      </span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <!-- Submit -->
+          <div class="flex items-center justify-between pt-2">
+            <a href="/get-started/games" class="text-sm text-gray-500 hover:text-gray-700">&larr; Back to Game Availability</a>
+            <button
+              type="submit"
+              id="submitBtn"
+              class="rounded-md bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            >
+              Submit Application
+            </button>
+          </div>
+
+        </form>
+      </div>
+
+    </div>
+  </div>
+</Layout>
+
+<script>
+  import { genUploader } from "uploadthing/client";
+
+  type UploadedFile = { ufsUrl: string; name: string };
+
+  const { uploadFiles } = genUploader({ url: "/api/uploadthing", package: "custom" });
+
+  const uploadArea = document.getElementById("uploadArea") as HTMLElement;
+  const fileInput = document.getElementById("fileInput") as HTMLInputElement;
+  const uploadBtn = document.getElementById("uploadBtn") as HTMLButtonElement;
+  const uploadLabel = document.getElementById("uploadLabel") as HTMLElement;
+  const uploadStatus = document.getElementById("uploadStatus") as HTMLElement;
+  const certInputsContainer = document.getElementById("certInputsContainer") as HTMLElement;
+  const certFileList = document.getElementById("certFileList") as HTMLUListElement;
+
+  uploadArea.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).id !== "uploadBtn") {
+      fileInput.click();
+    }
+  });
+
+  uploadArea.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    uploadArea.classList.add("border-indigo-500", "bg-indigo-50");
+  });
+  uploadArea.addEventListener("dragleave", () => {
+    uploadArea.classList.remove("border-indigo-500", "bg-indigo-50");
+  });
+  uploadArea.addEventListener("drop", (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove("border-indigo-500", "bg-indigo-50");
+    if (e.dataTransfer?.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      handleFileSelection();
+    }
+  });
+
+  fileInput.addEventListener("change", handleFileSelection);
+
+  function handleFileSelection() {
+    const files = fileInput.files;
+    if (!files || files.length === 0) return;
+    uploadBtn.classList.remove("hidden");
+    uploadLabel.textContent = `${files.length} file(s) selected`;
+  }
+
+  function addUploadedFile(url: string, name: string) {
+    const urlInput = document.createElement("input");
+    urlInput.type = "hidden";
+    urlInput.name = "certUrl";
+    urlInput.value = url;
+    certInputsContainer.appendChild(urlInput);
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "hidden";
+    nameInput.name = "certName";
+    nameInput.value = name;
+    certInputsContainer.appendChild(nameInput);
+
+    const li = document.createElement("li");
+    li.className = "flex items-center gap-2 text-green-700";
+    li.innerHTML = `<svg class="size-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd"/></svg><span>${name}</span>`;
+    certFileList.appendChild(li);
+  }
+
+  uploadBtn.addEventListener("click", async () => {
+    const files = fileInput.files;
+    if (!files || files.length === 0) return;
+
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = "Uploading…";
+    uploadStatus.textContent = "Uploading files, please wait…";
+    uploadStatus.classList.remove("hidden");
+    uploadStatus.className = "mt-2 text-sm text-gray-500";
+
+    try {
+      const result = await uploadFiles("certificationUploader", {
+        files: Array.from(files),
+      }) as UploadedFile[];
+
+      result.forEach(({ ufsUrl, name }) => addUploadedFile(ufsUrl, name));
+
+      uploadStatus.textContent = `${result.length} file(s) uploaded successfully.`;
+      uploadStatus.className = "mt-2 text-sm text-green-600";
+      uploadBtn.textContent = "Upload more files";
+      uploadBtn.disabled = false;
+      fileInput.value = "";
+      uploadLabel.textContent = "Click to upload";
+
+    } catch (err) {
+      uploadStatus.textContent = err instanceof Error ? err.message : "Upload failed. Please try again.";
+      uploadStatus.className = "mt-2 text-sm text-red-600";
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = "Retry upload";
+    }
+  });
+</script>

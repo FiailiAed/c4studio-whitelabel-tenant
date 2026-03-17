@@ -1,0 +1,17 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist"],
+  "compilerOptions": {
+    "paths": {
+      "@blog/*": ["./src/blog/*"],
+      "@components/*": ["./src/components/*"],
+      "@react-comlayouts/*": ["./src/components/react/*"],
+      "@images/*": ["./src/images/*"],
+      "@layouts/*": ["./src/layouts/*"],
+      "@styles/*": ["./src/styles/*"],
+      "@markdown/*": ["./src/markdown/*"],
+      "@api/*": ["./src/pages/api/*"]
+    }
+  }
+}

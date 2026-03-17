@@ -1,0 +1,193 @@
+---
+import CoachLayout from "@layouts/CoachLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const rawId = Astro.params.id;
+if (!rawId) return Astro.redirect("/coach");
+
+const eventId = rawId as Id<"events">;
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+
+const [event, planData, assignments] = await Promise.all([
+  client.query(api.events.getEvent, { id: eventId }),
+  client.query(api.plans.getPlanForEvent, { eventId }),
+  client.query(api.assignments.getAssignmentsForEvent, { eventId }),
+]);
+
+if (!event || !event.published) {
+  return new Response(null, { status: 404 });
+}
+
+if (!planData) {
+  // Render "not available" message handled below
+}
+
+const myAssignments = assignments.filter((a) => a.clerkId === userId);
+
+// Shared sections shown to everyone
+const SHARED_SECTIONS = ["stretch", "warmup"] as const;
+
+function isSharedSection(section: string): boolean {
+  return SHARED_SECTIONS.includes(section as typeof SHARED_SECTIONS[number]);
+}
+
+// Filter drills: shared sections always shown + all of coach's stations
+const visibleDrills = planData
+  ? planData.drills.filter((pd) => {
+      if (isSharedSection(pd.section)) return true;
+      if (myAssignments.length === 0) return true; // no assignment → show all
+      return myAssignments.some(
+        (a) => pd.section === a.station && (pd.ageGroup == null || pd.ageGroup === a.ageGroup)
+      );
+    })
+  : [];
+
+// Group by section
+type DrillEntry = typeof visibleDrills[number];
+const drillsBySection = new Map<string, DrillEntry[]>();
+for (const pd of visibleDrills) {
+  const key = pd.section + (pd.ageGroup ? `_${pd.ageGroup}` : "");
+  if (!drillsBySection.has(key)) drillsBySection.set(key, []);
+  drillsBySection.get(key)!.push(pd);
+}
+
+const STATION_LABELS: Record<string, string> = {
+  stretch: "Stretch",
+  warmup: "Warmup",
+  offense: "Offense",
+  ground_balls: "Ground Balls",
+  defense: "Defense",
+  "3v3_combat": "3v3 Combat",
+  team_specific: "Team Specific",
+  u6_practice: "U6 Practice",
+};
+
+function sectionLabel(section: string, ageGroup?: string | null): string {
+  const base = STATION_LABELS[section] ?? section;
+  return ageGroup ? `${base} — ${ageGroup}` : base;
+}
+
+function calcReps(pd: DrillEntry): { totalReps: number; perPlayerReps: number | null } {
+  if (!pd.drill) return { totalReps: 0, perPlayerReps: null };
+  const totalReps = pd.repsOverride ?? Math.round(pd.durationMinutes * pd.drill.repsPerMinute);
+  const perPlayerReps = pd.playerCountAtStation
+    ? Math.ceil(totalReps / pd.playerCountAtStation)
+    : null;
+  return { totalReps, perPlayerReps };
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts).toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric",
+  });
+}
+---
+
+<CoachLayout title="Practice Plan" currentTab="practice" breadcrumbs={[{ name: "Practice", href: "/coach/practice" }, { name: event.title, href: Astro.url.pathname }]}>
+  <div class="px-4 py-6 space-y-6">
+
+    <a href="/coach" class="text-sm text-green-600 hover:underline">&larr; Back to Home</a>
+
+    <!-- Event info -->
+    <div>
+      <h2 class="text-lg font-bold text-gray-900">{event.title}</h2>
+      <p class="text-sm text-gray-500">{formatDate(event.date)}</p>
+      {event.durationMinutes && (
+        <p class="text-sm text-gray-500">{event.durationMinutes} min</p>
+      )}
+    </div>
+
+    {!planData ? (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <p class="text-sm text-amber-800">Practice plan not yet available.</p>
+        <a href="/coach" class="mt-2 inline-block text-sm text-amber-700 underline">Back to Home</a>
+      </div>
+    ) : (
+      <>
+        <!-- Station banner -->
+        {myAssignments.length > 0 && (
+          <div class="bg-green-50 border border-green-200 rounded-xl p-4">
+            <p class="text-xs font-medium text-green-700 uppercase tracking-wide mb-2">Your Stations</p>
+            <div class="space-y-1">
+              {myAssignments.map((a) => (
+                <div class="flex items-center gap-1.5">
+                  <span class="inline-block size-2 rounded-full bg-green-500 shrink-0"></span>
+                  <span class="text-base font-semibold text-green-900">
+                    {STATION_LABELS[a.station] ?? a.station}
+                    {a.ageGroup ? ` / ${a.ageGroup}` : " / All age groups"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <!-- Drill sections -->
+        {Array.from(drillsBySection.entries()).map(([key, drills]) => {
+          const firstDrill = drills[0];
+          const headerLabel = sectionLabel(firstDrill.section, firstDrill.ageGroup);
+          return (
+            <div class="space-y-3">
+              <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">{headerLabel}</h3>
+              {drills.sort((a, b) => a.order - b.order).map((pd) => {
+                const { totalReps, perPlayerReps } = calcReps(pd);
+                return (
+                  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-2">
+                    <p class="font-semibold text-gray-900">{pd.drill?.name ?? "Unknown Drill"}</p>
+                    <div class="flex flex-wrap gap-2 text-xs text-gray-500">
+                      <span>{pd.durationMinutes} min</span>
+                      <span>&bull;</span>
+                      <span>{totalReps} total reps</span>
+                      {perPlayerReps !== null && (
+                        <>
+                          <span>&bull;</span>
+                          <span>{perPlayerReps} reps/player</span>
+                        </>
+                      )}
+                    </div>
+                    {pd.drill?.description && (
+                      <p class="text-sm text-gray-600">{pd.drill.description}</p>
+                    )}
+                    {pd.drill?.diagramSvg && (
+                      <details class="text-sm">
+                        <summary class="cursor-pointer text-green-600 font-medium">View Diagram</summary>
+                        <div class="mt-2" set:html={pd.drill.diagramSvg} />
+                      </details>
+                    )}
+                    {pd.drill?.videoUrl && (
+                      <a
+                        href={pd.drill.videoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="inline-block text-sm text-green-600 underline"
+                      >
+                        Watch Video
+                      </a>
+                    )}
+                    {pd.notes && (
+                      <p class="text-xs text-gray-400 italic">{pd.notes}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+
+        <!-- Log reps CTA -->
+        <a
+          href={`/coach/log/${eventId}`}
+          class="block w-full text-center bg-green-600 text-white font-semibold rounded-xl py-3 text-sm hover:bg-green-700"
+        >
+          Log Reps
+        </a>
+      </>
+    )}
+
+  </div>
+</CoachLayout>

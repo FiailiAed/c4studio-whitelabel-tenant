@@ -1,0 +1,350 @@
+---
+import AdminDashboardLayout from "@layouts/AdminDashboardLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const { id } = Astro.params;
+if (!id) return Astro.redirect("/admin/events");
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const callerUser = await client.query(api.users.getUserByClerkId, { clerkId: userId });
+if (!callerUser || callerUser.role !== "admin") return Astro.redirect("/");
+
+const GAME_TYPES = ["game", "scrimmage", "festival"];
+
+const event = await client.query(api.events.getEvent, { id: id as Id<"events"> });
+if (!event) return Astro.redirect("/admin/events");
+
+// Redirect non-game event types to plan page
+if (!GAME_TYPES.includes(event.type)) {
+  return Astro.redirect(`/admin/events/${id}/plan`);
+}
+
+const [checklist, allDrills, u6Players, u8Players, u12Players, u14Players] = await Promise.all([
+  client.query(api.gameDayChecklists.getChecklistForEvent, { eventId: id as Id<"events"> }),
+  client.query(api.drills.listDrills, {}),
+  client.query(api.players.listPlayersByAgeGroup, { ageGroup: "U6" }),
+  client.query(api.players.listPlayersByAgeGroup, { ageGroup: "U8" }),
+  client.query(api.players.listPlayersByAgeGroup, { ageGroup: "U12" }),
+  client.query(api.players.listPlayersByAgeGroup, { ageGroup: "U14" }),
+]);
+
+const DEFAULT_EQUIPMENT = ["Cones", "Lacrosse Balls", "Goals", "First Aid Kit", "Pinnies"];
+
+// Merge existing equipment or use defaults
+const equipmentItems = checklist?.equipmentItems.length
+  ? checklist.equipmentItems
+  : DEFAULT_EQUIPMENT.map((item) => ({ item, checked: false }));
+
+const AGE_GROUPS = ["U6", "U8", "U12", "U14"] as const;
+const playersByAgeGroup: Record<string, typeof u6Players> = {
+  U6: u6Players.filter((p) => p.isActive),
+  U8: u8Players.filter((p) => p.isActive),
+  U12: u12Players.filter((p) => p.isActive),
+  U14: u14Players.filter((p) => p.isActive),
+};
+
+// Game schedule defaults: one row per age group
+const scheduleMap = new Map<string, { time: string; location: string }>();
+for (const row of checklist?.gameSchedule ?? []) {
+  scheduleMap.set(row.ageGroup, { time: row.time, location: row.location ?? "" });
+}
+---
+
+<AdminDashboardLayout title={`Checklist — ${event.title}`} currentTab="events" breadcrumbs={[{ name: "Events", href: "/admin/events" }, { name: event.title, href: `/admin/events/${id}` }, { name: "Checklist", href: Astro.url.pathname }]}>
+
+  <div class="mb-6 flex items-center justify-between">
+    <a href={`/admin/events/${id}`} class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 010 1.06L8.06 10l3.72 3.72a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0Z" clip-rule="evenodd" />
+      </svg>
+      Back to Event
+    </a>
+    <button
+      id="saveChecklistBtn"
+      type="button"
+      class="rounded-md bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+    >
+      Save Checklist
+    </button>
+  </div>
+
+  <div id="checklistStatus" class="hidden mb-4 rounded-md p-3 text-sm font-medium"></div>
+
+  <div class="space-y-6 max-w-4xl">
+
+    <!-- 1. Pre-Game Warmup Drills -->
+    <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <h2 class="text-sm font-semibold text-gray-900">Pre-Game Warmup Drills</h2>
+        <p class="mt-0.5 text-xs text-gray-500">Select drills to run before the game</p>
+      </div>
+      <div id="warmupDrillsList" class="px-6 py-4">
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {allDrills.map((drill) => {
+            const checked = checklist?.warmupDrillIds.includes(drill._id) ?? false;
+            return (
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="warmup-drill-check size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                  value={drill._id}
+                  checked={checked}
+                />
+                <span class="text-sm text-gray-700">{drill.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Equipment Checklist -->
+    <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-gray-900">Equipment Checklist</h2>
+          <p class="mt-0.5 text-xs text-gray-500">Track game day equipment</p>
+        </div>
+        <button
+          id="addEquipmentBtn"
+          type="button"
+          class="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+        >
+          + Add Item
+        </button>
+      </div>
+      <div id="equipmentList" class="px-6 py-4 space-y-2">
+        {equipmentItems.map((eq, idx) => (
+          <div class="equipment-item flex items-center gap-3">
+            <input
+              type="checkbox"
+              class="equipment-check size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+              checked={eq.checked}
+            />
+            <input
+              type="text"
+              class="equipment-text flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              value={eq.item}
+              placeholder="Equipment item…"
+            />
+            <button type="button" class="remove-equipment-btn text-xs text-red-500 hover:text-red-700">Remove</button>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <!-- 3. Game Schedule -->
+    <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <h2 class="text-sm font-semibold text-gray-900">Game Schedule</h2>
+        <p class="mt-0.5 text-xs text-gray-500">Game time and location per age group</p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs text-gray-400 border-b border-gray-100">
+              <th class="px-4 py-2 font-medium">Age Group</th>
+              <th class="px-4 py-2 font-medium">Time</th>
+              <th class="px-4 py-2 font-medium">Location</th>
+            </tr>
+          </thead>
+          <tbody id="scheduleTable" class="divide-y divide-gray-50">
+            {AGE_GROUPS.map((ag) => {
+              const row = scheduleMap.get(ag);
+              return (
+                <tr data-age-group={ag}>
+                  <td class="px-4 py-2 font-medium text-gray-900">{ag}</td>
+                  <td class="px-4 py-2">
+                    <input
+                      type="time"
+                      class="schedule-time rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      value={row?.time ?? ""}
+                    />
+                  </td>
+                  <td class="px-4 py-2">
+                    <input
+                      type="text"
+                      class="schedule-location w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      value={row?.location ?? ""}
+                      placeholder="Field 1, Court A…"
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 4. Roster Notes -->
+    <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <h2 class="text-sm font-semibold text-gray-900">Roster Notes</h2>
+        <p class="mt-0.5 text-xs text-gray-500">Absences, injuries, or other notes</p>
+      </div>
+      <div class="px-6 py-4">
+        <textarea
+          id="rosterNotes"
+          rows="4"
+          placeholder="e.g. Player #12 injured — out today. U8 short 2 players…"
+          class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >{checklist?.rosterNotes ?? ""}</textarea>
+      </div>
+    </div>
+
+    <!-- 5. Roster Sheet (read-only, print-friendly) -->
+    <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-gray-900">Roster Sheet</h2>
+          <p class="mt-0.5 text-xs text-gray-500">Check off players as they arrive (not saved)</p>
+        </div>
+        <button
+          type="button"
+          onclick="window.print()"
+          class="text-sm text-gray-500 hover:text-gray-700 font-medium"
+        >
+          Print
+        </button>
+      </div>
+      <div class="px-6 py-4">
+        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+          {AGE_GROUPS.map((ag) => {
+            const players = playersByAgeGroup[ag] ?? [];
+            return (
+              <div>
+                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{ag}</h3>
+                {players.length === 0 ? (
+                  <p class="text-sm text-gray-400">No active players</p>
+                ) : (
+                  <ul class="space-y-1.5">
+                    {players.map((p) => (
+                      <li class="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          class="roster-check size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                        />
+                        <span class="text-sm text-gray-700">
+                          {p.jerseyNumber ? `#${p.jerseyNumber} ` : ""}{p.name}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom save button -->
+  <div class="mt-6 flex justify-end max-w-4xl">
+    <button
+      type="button"
+      class="rounded-md bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+      onclick="document.getElementById('saveChecklistBtn').click()"
+    >
+      Save Checklist
+    </button>
+  </div>
+
+</AdminDashboardLayout>
+
+<script is:inline define:vars={{ eventId: id }}>
+  const statusEl = document.getElementById("checklistStatus");
+
+  function showStatus(msg, isError) {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.className = `mb-4 rounded-md p-3 text-sm font-medium ${isError ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`;
+    statusEl.classList.remove("hidden");
+    setTimeout(() => statusEl.classList.add("hidden"), 4000);
+  }
+
+  // Add equipment item
+  document.getElementById("addEquipmentBtn")?.addEventListener("click", () => {
+    const list = document.getElementById("equipmentList");
+    if (!list) return;
+    const div = document.createElement("div");
+    div.className = "equipment-item flex items-center gap-3";
+    div.innerHTML = `
+      <input type="checkbox" class="equipment-check size-4 rounded border-gray-300 text-indigo-600" />
+      <input type="text" class="equipment-text flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" placeholder="Equipment item…" />
+      <button type="button" class="remove-equipment-btn text-xs text-red-500 hover:text-red-700">Remove</button>
+    `;
+    list.appendChild(div);
+    div.querySelector(".equipment-text")?.focus();
+    attachRemoveBtn(div.querySelector(".remove-equipment-btn"));
+  });
+
+  // Remove equipment item
+  function attachRemoveBtn(btn) {
+    if (!btn) return;
+    btn.addEventListener("click", () => btn.closest(".equipment-item")?.remove());
+  }
+  document.querySelectorAll(".remove-equipment-btn").forEach(attachRemoveBtn);
+
+  // Save checklist
+  document.getElementById("saveChecklistBtn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("saveChecklistBtn");
+
+    // Collect warmup drills
+    const warmupDrillIds = Array.from(
+      document.querySelectorAll(".warmup-drill-check:checked")
+    ).map((el) => el.value);
+
+    // Collect equipment items
+    const equipmentItems = Array.from(
+      document.querySelectorAll(".equipment-item")
+    ).map((item) => ({
+      item: item.querySelector(".equipment-text")?.value?.trim() ?? "",
+      checked: item.querySelector(".equipment-check")?.checked ?? false,
+    })).filter((e) => e.item);
+
+    // Collect game schedule
+    const gameSchedule = Array.from(
+      document.querySelectorAll("#scheduleTable tr[data-age-group]")
+    ).map((row) => ({
+      ageGroup: row.dataset.ageGroup,
+      time: row.querySelector(".schedule-time")?.value ?? "",
+      location: row.querySelector(".schedule-location")?.value?.trim() || undefined,
+    })).filter((s) => s.ageGroup && s.time);
+
+    const rosterNotes = document.getElementById("rosterNotes")?.value?.trim() || undefined;
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+    }
+
+    try {
+      const res = await fetch("/api/admin/checklists/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, warmupDrillIds, equipmentItems, gameSchedule, rosterNotes }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showStatus("Checklist saved.", false);
+      } else {
+        showStatus(data.error ?? "Failed to save.", true);
+      }
+    } catch {
+      showStatus("Network error.", true);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Save Checklist";
+      }
+    }
+  });
+</script>

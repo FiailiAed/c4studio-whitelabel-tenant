@@ -1,0 +1,132 @@
+---
+import CoachLayout from "@layouts/CoachLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../convex/_generated/api";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const drills = await client.query(api.drills.listDrills, {});
+
+const SECTION_LABELS: Record<string, string> = {
+  stretch: "Stretch",
+  warmup: "Warmup",
+  offense: "Offense",
+  ground_balls: "Ground Balls",
+  defense: "Defense",
+  "3v3_combat": "3v3 Combat",
+  team_specific: "Team Specific",
+  u6_practice: "U6 Practice",
+};
+
+const sections = [...new Set(drills.map((d) => d.defaultSection).filter(Boolean))] as string[];
+---
+
+<CoachLayout title="Drill Library" currentTab="drills" breadcrumbs={[{ name: "Drills", href: "/coach/drills" }]}>
+  <div class="px-4 py-6 space-y-4">
+
+    <!-- Search -->
+    <div>
+      <input
+        id="drill-search"
+        type="search"
+        placeholder="Search drills…"
+        class="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+      />
+    </div>
+
+    <!-- Section filter pills -->
+    <div class="flex flex-wrap gap-2">
+      <button
+        class="filter-pill active rounded-full bg-green-600 text-white px-3 py-1 text-xs font-medium"
+        data-section=""
+      >
+        All
+      </button>
+      {sections.map((s) => (
+        <button
+          class="filter-pill rounded-full bg-gray-100 text-gray-600 px-3 py-1 text-xs font-medium hover:bg-gray-200"
+          data-section={s}
+        >
+          {SECTION_LABELS[s] ?? s}
+        </button>
+      ))}
+    </div>
+
+    <!-- Drill list -->
+    <div id="drill-list" class="space-y-2">
+      {drills.map((drill) => (
+        <a
+          href={`/coach/drills/${drill._id}`}
+          class="drill-card block bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:shadow-md transition-shadow"
+          data-name={drill.name.toLowerCase()}
+          data-section={drill.defaultSection ?? ""}
+        >
+          <div class="flex items-start justify-between gap-2">
+            <p class="font-medium text-gray-900 text-sm">{drill.name}</p>
+            {drill.defaultSection && (
+              <span class="shrink-0 text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+                {SECTION_LABELS[drill.defaultSection] ?? drill.defaultSection}
+              </span>
+            )}
+          </div>
+          {drill.description && (
+            <p class="text-xs text-gray-500 mt-1 line-clamp-2">{drill.description}</p>
+          )}
+          <p class="text-xs text-gray-400 mt-1">
+            {drill.defaultDurationMinutes} min &bull; {drill.repsPerMinute} reps/min
+          </p>
+        </a>
+      ))}
+      {drills.length === 0 && (
+        <p class="text-sm text-gray-400 text-center py-8">No drills in library yet.</p>
+      )}
+    </div>
+
+    <p id="no-results" class="hidden text-sm text-gray-400 text-center py-8">No drills match your search.</p>
+
+  </div>
+</CoachLayout>
+
+<script is:inline>
+  const searchInput = document.getElementById('drill-search');
+  const drillList = document.getElementById('drill-list');
+  const noResults = document.getElementById('no-results');
+  const pills = document.querySelectorAll('.filter-pill');
+  const cards = document.querySelectorAll('.drill-card');
+
+  let activeSection = '';
+
+  function applyFilters() {
+    const query = searchInput.value.toLowerCase();
+    let visibleCount = 0;
+
+    cards.forEach((card) => {
+      const name = card.dataset.name || '';
+      const section = card.dataset.section || '';
+      const matchesSearch = !query || name.includes(query);
+      const matchesSection = !activeSection || section === activeSection;
+      const visible = matchesSearch && matchesSection;
+      card.style.display = visible ? '' : 'none';
+      if (visible) visibleCount++;
+    });
+
+    noResults.classList.toggle('hidden', visibleCount > 0);
+  }
+
+  searchInput.addEventListener('input', applyFilters);
+
+  pills.forEach((pill) => {
+    pill.addEventListener('click', () => {
+      pills.forEach((p) => {
+        p.classList.remove('active', 'bg-green-600', 'text-white');
+        p.classList.add('bg-gray-100', 'text-gray-600');
+      });
+      pill.classList.add('active', 'bg-green-600', 'text-white');
+      pill.classList.remove('bg-gray-100', 'text-gray-600');
+      activeSection = pill.dataset.section || '';
+      applyFilters();
+    });
+  });
+</script>

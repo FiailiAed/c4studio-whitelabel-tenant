@@ -1,0 +1,382 @@
+---
+import CoachLayout from "@layouts/CoachLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const rawId = Astro.params.eventId;
+if (!rawId) return Astro.redirect("/coach");
+
+const isReadOnly = Astro.locals.coachIsReadOnly ?? false;
+
+const eventId = rawId as Id<"events">;
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+
+// Handle POST: save rep logs
+if (Astro.request.method === "POST") {
+  if (isReadOnly) return Astro.redirect(`/coach/practice/${eventId}`);
+  const form = await Astro.request.formData();
+
+  // Process station-level drill logs
+  const drillIds = form.getAll("drillId") as Id<"drills">[];
+  const stations = form.getAll("station") as string[];
+  const ageGroups = form.getAll("ageGroup") as string[];
+  const repsValues = form.getAll("repsCompleted") as string[];
+
+  for (let i = 0; i < drillIds.length; i++) {
+    const reps = parseInt(repsValues[i] ?? "0", 10);
+    if (!isNaN(reps) && reps > 0) {
+      await client.mutation(api.repsLog.upsertStationLog, {
+        eventId,
+        clerkId: userId,
+        drillId: drillIds[i],
+        station: stations[i] as Parameters<typeof client.mutation<typeof api.repsLog.upsertStationLog>>[1]["station"],
+        ageGroup: ageGroups[i] as Parameters<typeof client.mutation<typeof api.repsLog.upsertStationLog>>[1]["ageGroup"] || undefined,
+        totalRepsCompleted: reps,
+      });
+    }
+  }
+
+  // Process per-player logs
+  const playerEntries = form.getAll("player_entry") as string[];
+  for (const entry of playerEntries) {
+    try {
+      const parsed = JSON.parse(entry) as {
+        playerId: Id<"players">;
+        drillId: Id<"drills">;
+        station: string;
+        repsCompleted: number;
+      };
+      if (parsed.repsCompleted > 0) {
+        await client.mutation(api.repsLog.logPlayerReps, {
+          eventId,
+          clerkId: userId,
+          playerId: parsed.playerId,
+          drillId: parsed.drillId,
+          station: parsed.station as Parameters<typeof client.mutation<typeof api.repsLog.logPlayerReps>>[1]["station"],
+          repsCompleted: parsed.repsCompleted,
+        });
+      }
+    } catch {
+      // skip malformed entries
+    }
+  }
+
+  return Astro.redirect(`/coach/practice/${eventId}`);
+}
+
+// Load data
+const [event, planData, assignments, existingLogs, allDrills] = await Promise.all([
+  client.query(api.events.getEvent, { id: eventId }),
+  client.query(api.plans.getPlanForEvent, { eventId }),
+  client.query(api.assignments.getAssignmentsForEvent, { eventId }),
+  client.query(api.repsLog.getMyLogsForEvent, { eventId, clerkId: userId }),
+  client.query(api.drills.listDrills, {}),
+]);
+
+if (!event) {
+  return new Response(null, { status: 404 });
+}
+
+const myAssignment = assignments.find((a) => a.clerkId === userId) ?? null;
+
+// Filter drills to coach's station (same logic as practice view)
+const SHARED_SECTIONS = ["stretch", "warmup"];
+const visibleDrills = planData
+  ? planData.drills.filter((pd) => {
+      if (SHARED_SECTIONS.includes(pd.section)) return true;
+      if (!myAssignment) return true;
+      return pd.section === myAssignment.station &&
+        (pd.ageGroup == null || pd.ageGroup === myAssignment.ageGroup);
+    })
+  : [];
+
+// Build log map: drillId → existing reps
+const logMap = new Map<string, number>();
+for (const log of existingLogs) {
+  logMap.set(log.drillId, log.totalRepsCompleted);
+}
+
+// Load players for coach's age group (if assigned)
+const players = myAssignment?.ageGroup
+  ? await client.query(api.players.listPlayersByAgeGroup, { ageGroup: myAssignment.ageGroup })
+  : [];
+
+const STATION_LABELS: Record<string, string> = {
+  stretch: "Stretch",
+  warmup: "Warmup",
+  offense: "Offense",
+  ground_balls: "Ground Balls",
+  defense: "Defense",
+  "3v3_combat": "3v3 Combat",
+  team_specific: "Team Specific",
+  u6_practice: "U6 Practice",
+};
+
+const STATION_OPTIONS = [
+  { value: "stretch",      label: "Stretch" },
+  { value: "warmup",       label: "Warmup" },
+  { value: "offense",      label: "Offense" },
+  { value: "ground_balls", label: "Ground Balls" },
+  { value: "defense",      label: "Defense" },
+  { value: "3v3_combat",   label: "3v3 Combat" },
+  { value: "team_specific", label: "Team Specific" },
+  { value: "u6_practice",  label: "U6 Practice" },
+] as const;
+---
+
+<CoachLayout title="Log Reps" currentTab="log" breadcrumbs={[{ name: "Log", href: "/coach/log" }, { name: event.title || "Log", href: Astro.url.pathname }]}>
+  <div class="px-4 py-6 space-y-6">
+
+    <a href={`/coach/practice/${eventId}`} class="text-sm text-green-600 hover:underline">&larr; Back to Practice Plan</a>
+
+    {isReadOnly ? (
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
+        <svg class="size-8 text-amber-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+        </svg>
+        <p class="text-sm font-semibold text-amber-800">Rep logging is available after your application is approved.</p>
+        <p class="text-xs text-amber-700 mt-1">An admin will review your application and unlock write features.</p>
+      </div>
+    ) : !planData ? (
+      <!-- Free-form drill logger (no plan exists) -->
+      <div class="space-y-4">
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <p class="text-sm font-medium text-amber-800">No practice plan for this event.</p>
+          <p class="text-xs text-amber-700 mt-1">Log your drills below using the free-form logger.</p>
+        </div>
+
+        <form method="POST" id="freeform-form" class="space-y-4">
+          <p class="text-sm text-gray-500">Add each drill you ran and the reps completed.</p>
+
+          <div id="drill-rows" class="space-y-3">
+            <!-- First drill row (cloned by JS for additional rows) -->
+            <div class="drill-row bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+              <div class="drill-row-header flex items-center justify-between">
+                <p class="drill-row-label text-xs font-semibold text-gray-700 uppercase tracking-wide">Drill 1</p>
+              </div>
+
+              <div>
+                <label class="text-xs text-gray-600 mb-1 block">Drill</label>
+                <select
+                  name="drillId"
+                  required
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="">Select a drill…</option>
+                  {allDrills.map((d) => (
+                    <option value={d._id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-xs text-gray-600 mb-1 block">Station</label>
+                  <select
+                    name="station"
+                    required
+                    class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="">Station…</option>
+                    {STATION_OPTIONS.map((s) => (
+                      <option
+                        value={s.value}
+                        selected={myAssignment?.station === s.value}
+                      >
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label class="text-xs text-gray-600 mb-1 block">Age Group</label>
+                  <select
+                    name="ageGroup"
+                    class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="">All ages</option>
+                    <option value="U6" selected={myAssignment?.ageGroup === "U6"}>U6</option>
+                    <option value="U8" selected={myAssignment?.ageGroup === "U8"}>U8</option>
+                    <option value="U12" selected={myAssignment?.ageGroup === "U12"}>U12</option>
+                    <option value="U14" selected={myAssignment?.ageGroup === "U14"}>U14</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label class="text-xs text-gray-600 mb-1 block">Reps Completed</label>
+                <input
+                  type="number"
+                  name="repsCompleted"
+                  min="0"
+                  placeholder="0"
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            id="add-drill-btn"
+            class="w-full border border-dashed border-green-400 text-green-600 rounded-xl py-2.5 text-sm font-medium hover:bg-green-50 transition-colors"
+          >
+            + Add Another Drill
+          </button>
+
+          <button
+            type="submit"
+            class="w-full bg-green-600 text-white font-semibold rounded-xl py-3 text-sm hover:bg-green-700 transition-colors"
+          >
+            Save Reps
+          </button>
+        </form>
+      </div>
+    ) : (
+      <form method="POST" class="space-y-6">
+
+        <p class="text-sm text-gray-500">Enter reps completed for each drill at your station.</p>
+
+        {visibleDrills.sort((a, b) => a.order - b.order).map((pd) => {
+          const existingReps = logMap.get(pd.drillId) ?? 0;
+          const totalReps = pd.repsOverride ?? Math.round(pd.durationMinutes * (pd.drill?.repsPerMinute ?? 0));
+          return (
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+              <div>
+                <p class="font-medium text-gray-900">{pd.drill?.name ?? "Unknown Drill"}</p>
+                <p class="text-xs text-gray-400">
+                  {STATION_LABELS[pd.section] ?? pd.section}
+                  {pd.ageGroup ? ` / ${pd.ageGroup}` : ""}
+                  &nbsp;&bull;&nbsp;Target: {totalReps} total reps
+                </p>
+              </div>
+
+              <!-- Hidden fields for processing -->
+              <input type="hidden" name="drillId" value={pd.drillId} />
+              <input type="hidden" name="station" value={pd.section} />
+              <input type="hidden" name="ageGroup" value={pd.ageGroup ?? ""} />
+
+              <div class="flex items-center gap-3">
+                <label class="text-sm text-gray-600 shrink-0">Reps completed</label>
+                <input
+                  type="number"
+                  name="repsCompleted"
+                  min="0"
+                  value={existingReps || ""}
+                  placeholder="0"
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+
+              <!-- Per-player reps (optional) -->
+              {players.length > 0 && (
+                <details class="text-sm">
+                  <summary class="cursor-pointer text-green-600 font-medium">Log per-player reps</summary>
+                  <div class="mt-3 space-y-2">
+                    {players.map((player) => (
+                      <div class="flex items-center gap-3">
+                        <span class="text-sm text-gray-700 flex-1">
+                          {player.name}
+                          {player.jerseyNumber != null ? ` (#${player.jerseyNumber})` : ""}
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="0"
+                          class="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 player-reps-input"
+                          data-player-id={player._id}
+                          data-drill-id={pd.drillId}
+                          data-station={pd.section}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          );
+        })}
+
+        <!-- Hidden input for player entries (populated by script) -->
+        <div id="player-entries-container"></div>
+
+        <button
+          type="submit"
+          class="w-full bg-green-600 text-white font-semibold rounded-xl py-3 text-sm hover:bg-green-700"
+        >
+          Save Reps
+        </button>
+
+      </form>
+    )}
+
+  </div>
+</CoachLayout>
+
+<script is:inline>
+  // ── Free-form: Add Another Drill ───────────────────────────────────────
+  const addBtn = document.getElementById('add-drill-btn');
+  const drillRows = document.getElementById('drill-rows');
+
+  if (addBtn && drillRows) {
+    let rowCount = drillRows.querySelectorAll('.drill-row').length;
+
+    addBtn.addEventListener('click', function () {
+      rowCount++;
+      const firstRow = drillRows.querySelector('.drill-row');
+      if (!firstRow) return;
+
+      const newRow = firstRow.cloneNode(true);
+
+      // Update label
+      const label = newRow.querySelector('.drill-row-label');
+      if (label) label.textContent = 'Drill ' + rowCount;
+
+      // Reset all select/input values
+      newRow.querySelectorAll('select').forEach(function (s) { s.selectedIndex = 0; });
+      newRow.querySelectorAll('input[type="number"]').forEach(function (i) { i.value = ''; });
+
+      // Add Remove button in header
+      const header = newRow.querySelector('.drill-row-header');
+      if (header) {
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = 'Remove';
+        removeBtn.className = 'text-xs text-red-500 hover:text-red-700 font-medium';
+        removeBtn.addEventListener('click', function () { newRow.remove(); });
+        header.appendChild(removeBtn);
+      }
+
+      drillRows.appendChild(newRow);
+    });
+  }
+
+  // ── Plan-based: collect per-player reps before submit ─────────────────
+  const form = document.querySelector('form:not(#freeform-form)');
+  if (form) {
+    form.addEventListener('submit', function () {
+      const container = document.getElementById('player-entries-container');
+      const inputs = document.querySelectorAll('.player-reps-input');
+      inputs.forEach(function (input) {
+        const reps = parseInt(input.value || '0', 10);
+        if (reps > 0) {
+          const hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          hidden.name = 'player_entry';
+          hidden.value = JSON.stringify({
+            playerId: input.dataset.playerId,
+            drillId: input.dataset.drillId,
+            station: input.dataset.station,
+            repsCompleted: reps,
+          });
+          container.appendChild(hidden);
+        }
+      });
+    });
+  }
+</script>

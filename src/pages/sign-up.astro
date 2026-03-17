@@ -1,0 +1,14 @@
+---
+import Layout from "@layouts/Layout.astro";
+import { SignUp as ClerkSignUp } from "@clerk/astro/components";
+---
+
+<Layout title="Sign Up — Lacrosse Coach Portal" breadcrumbs={[{ name: "Sign Up", href: "/sign-up" }]}>
+  <main class="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 flex flex-col items-center justify-center px-4 py-12">
+    <ClerkSignUp afterSignUpUrl="/" />
+    <p class="mt-6 text-sm text-slate-500">
+      Already have an account?{" "}
+      <a href="/sign-in" class="text-indigo-600 hover:text-indigo-500 font-medium">Sign in instead &rarr;</a>
+    </p>
+  </main>
+</Layout>

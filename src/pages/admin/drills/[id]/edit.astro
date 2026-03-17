@@ -1,0 +1,342 @@
+---
+import AdminDashboardLayout from "@layouts/AdminDashboardLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const { id } = Astro.params;
+if (!id) return Astro.redirect("/admin/drills");
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const callerUser = await client.query(api.users.getUserByClerkId, { clerkId: userId });
+if (!callerUser || callerUser.role !== "admin") return Astro.redirect("/");
+
+const drill = await client.query(api.drills.getDrill, { id: id as Id<"drills"> });
+if (!drill) return Astro.redirect("/admin/drills");
+
+let formError: string | null = null;
+
+if (Astro.request.method === "POST") {
+  const data = await Astro.request.formData();
+
+  const name = (data.get("name") as string | null)?.trim() ?? "";
+  const description = (data.get("description") as string | null)?.trim() || undefined;
+  const videoUrl = (data.get("videoUrl") as string | null)?.trim() || undefined;
+  const defaultSection = (data.get("defaultSection") as string | null)?.trim() || undefined;
+  const defaultDurationStr = (data.get("defaultDurationMinutes") as string | null)?.trim() ?? "";
+  const repsPerMinStr = (data.get("repsPerMinute") as string | null)?.trim() ?? "";
+  const ageGroupsRaw = data.getAll("suitableAgeGroups") as string[];
+
+  if (!name) {
+    formError = "Drill name is required.";
+  } else if (!defaultDurationStr || isNaN(parseInt(defaultDurationStr, 10))) {
+    formError = "Default duration is required.";
+  } else if (!repsPerMinStr || isNaN(parseInt(repsPerMinStr, 10))) {
+    formError = "Reps per minute is required.";
+  } else {
+    const validSections = ["stretch", "warmup", "offense", "ground_balls", "defense", "3v3_combat", "team_specific", "u6_practice"] as const;
+    type ValidSection = typeof validSections[number];
+    const resolvedSection =
+      defaultSection && validSections.includes(defaultSection as ValidSection)
+        ? (defaultSection as ValidSection)
+        : undefined;
+
+    const validAgeGroups = ["U6", "U8", "U12", "U14"] as const;
+    type ValidAgeGroup = typeof validAgeGroups[number];
+    const suitableAgeGroups = ageGroupsRaw.filter((ag): ag is ValidAgeGroup =>
+      validAgeGroups.includes(ag as ValidAgeGroup)
+    );
+
+    await client.mutation(api.drills.updateDrill, {
+      id: id as Id<"drills">,
+      name,
+      description,
+      videoUrl,
+      defaultSection: resolvedSection,
+      suitableAgeGroups: suitableAgeGroups.length > 0 ? suitableAgeGroups : undefined,
+      defaultDurationMinutes: parseInt(defaultDurationStr, 10),
+      repsPerMinute: parseInt(repsPerMinStr, 10),
+    });
+    return Astro.redirect("/admin/drills");
+  }
+}
+---
+
+<AdminDashboardLayout title={`Edit: ${drill.name}`} currentTab="drills" breadcrumbs={[{ name: "Drills", href: "/admin/drills" }, { name: drill.name, href: `/admin/drills/${id}` }, { name: "Edit", href: Astro.url.pathname }]}>
+
+  <div class="mb-6">
+    <a href="/admin/drills" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 010 1.06L8.06 10l3.72 3.72a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0Z" clip-rule="evenodd" />
+      </svg>
+      Back to Drill Library
+    </a>
+  </div>
+
+  {formError && (
+    <div class="mb-6 rounded-md bg-red-50 p-4">
+      <p class="text-sm text-red-700">{formError}</p>
+    </div>
+  )}
+
+  <div class="bg-white shadow-sm rounded-xl ring-1 ring-gray-900/5 px-6 py-8 sm:px-8 max-w-2xl">
+    <form method="POST" class="space-y-6">
+
+      <!-- Name -->
+      <div>
+        <label for="name" class="block text-sm font-medium text-gray-900">
+          Drill Name <span class="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          id="name"
+          name="name"
+          required
+          value={drill.name}
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </div>
+
+      <!-- Description -->
+      <div>
+        <label for="description" class="block text-sm font-medium text-gray-900">Description</label>
+        <textarea
+          id="description"
+          name="description"
+          rows="3"
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >{drill.description ?? ""}</textarea>
+      </div>
+
+      <!-- Video URL -->
+      <div>
+        <label for="videoUrl" class="block text-sm font-medium text-gray-900">Video URL</label>
+        <p class="mt-0.5 text-xs text-gray-500">Optional link to a YouTube, Vimeo, or other video (displayed as a plain link).</p>
+        <input
+          type="url"
+          id="videoUrl"
+          name="videoUrl"
+          value={drill.videoUrl ?? ""}
+          placeholder="https://youtube.com/watch?v=..."
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </div>
+
+      <!-- Default Section -->
+      <div>
+        <label for="defaultSection" class="block text-sm font-medium text-gray-900">Default Section</label>
+        <select
+          id="defaultSection"
+          name="defaultSection"
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >
+          <option value="">None specified</option>
+          {[
+            { value: "stretch", label: "Stretch" },
+            { value: "warmup", label: "Warmup" },
+            { value: "offense", label: "Offense" },
+            { value: "ground_balls", label: "Ground Balls" },
+            { value: "defense", label: "Defense" },
+            { value: "3v3_combat",   label: "3v3 Combat" },
+            { value: "team_specific", label: "Team Specific" },
+            { value: "u6_practice", label: "U6 Practice" },
+          ].map((s) => (
+            <option value={s.value} selected={drill.defaultSection === s.value}>{s.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <!-- Suitable Age Groups -->
+      <div>
+        <fieldset>
+          <legend class="text-sm font-medium text-gray-900">Suitable Age Groups</legend>
+          <p class="mt-0.5 text-xs text-gray-500">Leave unchecked for all age groups.</p>
+          <div class="mt-3 flex flex-wrap gap-4">
+            {(["U6", "U8", "U12", "U14"] as const).map((ag) => (
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="suitableAgeGroups"
+                  value={ag}
+                  checked={(drill.suitableAgeGroups ?? []).includes(ag)}
+                  class="size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                />
+                <span class="text-sm text-gray-700">{ag}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+
+      <!-- Duration + Reps -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label for="defaultDurationMinutes" class="block text-sm font-medium text-gray-900">
+            Default Duration (min) <span class="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            id="defaultDurationMinutes"
+            name="defaultDurationMinutes"
+            required
+            value={drill.defaultDurationMinutes}
+            min="1"
+            max="60"
+            class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+        <div>
+          <label for="repsPerMinute" class="block text-sm font-medium text-gray-900">
+            Reps per Minute <span class="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            id="repsPerMinute"
+            name="repsPerMinute"
+            required
+            value={drill.repsPerMinute}
+            min="1"
+            class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+        <a href="/admin/drills" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
+        <button
+          type="submit"
+          class="rounded-md bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+        >
+          Save Changes
+        </button>
+      </div>
+
+    </form>
+  </div>
+
+  <!-- SVG Diagram Picker -->
+  <div class="mt-8 bg-white shadow-sm rounded-xl ring-1 ring-gray-900/5 px-6 py-8 sm:px-8 max-w-2xl">
+    <h2 class="text-base font-semibold text-gray-900">Drill Diagram</h2>
+    <p class="mt-1 text-sm text-gray-500">Upload an SVG file exported from Excalidraw or a similar tool. The diagram is stored inline — no extra network request when coaches view it.</p>
+
+    {drill.diagramSvg && (
+      <div class="mt-4">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Current Diagram</p>
+        <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 overflow-auto max-h-64" set:html={drill.diagramSvg} />
+      </div>
+    )}
+
+    <div class="mt-4 space-y-4">
+      <div>
+        <label for="svgFile" class="block text-sm font-medium text-gray-900">
+          {drill.diagramSvg ? "Replace SVG" : "Upload SVG"}
+        </label>
+        <input
+          type="file"
+          id="svgFile"
+          accept=".svg,image/svg+xml"
+          class="mt-2 block text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+        />
+      </div>
+
+      <div id="svgPreview" class="hidden">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Preview</p>
+        <div id="svgPreviewContent" class="rounded-lg border border-gray-200 bg-gray-50 p-4 overflow-auto max-h-64" />
+      </div>
+
+      <div class="flex items-center gap-4">
+        <button
+          type="button"
+          id="saveDiagramBtn"
+          disabled
+          class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Save Diagram
+        </button>
+        <span id="diagramStatus" class="hidden text-sm font-medium"></span>
+      </div>
+    </div>
+  </div>
+
+</AdminDashboardLayout>
+
+<script is:inline>
+  (function () {
+    const fileInput = document.getElementById("svgFile");
+    const previewSection = document.getElementById("svgPreview");
+    const previewContent = document.getElementById("svgPreviewContent");
+    const saveBtn = document.getElementById("saveDiagramBtn");
+    const statusEl = document.getElementById("diagramStatus");
+
+    let svgContent = "";
+
+    function showDiagramStatus(msg, isError) {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      statusEl.className = "text-sm font-medium " + (isError ? "text-red-600" : "text-green-600");
+      statusEl.classList.remove("hidden");
+      if (!isError) setTimeout(() => statusEl.classList.add("hidden"), 4000);
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener("change", function () {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+
+        if (file.type !== "image/svg+xml" && !file.name.toLowerCase().endsWith(".svg")) {
+          showDiagramStatus("Please select a valid .svg file.", true);
+          fileInput.value = "";
+          return;
+        }
+
+        if (file.size > 512 * 1024) {
+          showDiagramStatus("SVG file is too large (max 500 KB). Please simplify the diagram.", true);
+          fileInput.value = "";
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          svgContent = e.target && typeof e.target.result === "string" ? e.target.result : "";
+          if (previewContent) previewContent.innerHTML = svgContent;
+          if (previewSection) previewSection.classList.remove("hidden");
+          if (saveBtn) saveBtn.disabled = false;
+          statusEl && statusEl.classList.add("hidden");
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    if (saveBtn) {
+      saveBtn.addEventListener("click", async function () {
+        if (!svgContent) return;
+        const drillId = window.location.pathname.split("/")[3];
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving…";
+
+        try {
+          const res = await fetch("/api/admin/drills/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: drillId, diagramSvg: svgContent }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            showDiagramStatus("Diagram saved.", false);
+          } else {
+            showDiagramStatus(data.error ?? "Save failed.", true);
+          }
+        } catch {
+          showDiagramStatus("Network error.", true);
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save Diagram";
+        }
+      });
+    }
+  })();
+</script>

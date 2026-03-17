@@ -1,0 +1,457 @@
+---
+import AdminDashboardLayout from "@layouts/AdminDashboardLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const { id } = Astro.params;
+if (!id) return Astro.redirect("/admin/events");
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const callerUser = await client.query(api.users.getUserByClerkId, { clerkId: userId });
+if (!callerUser || callerUser.role !== "admin") return Astro.redirect("/");
+
+const GAME_TYPES = ["game", "scrimmage", "festival"];
+
+const event = await client.query(api.events.getEvent, { id: id as Id<"events"> });
+if (!event) return Astro.redirect("/admin/events");
+
+const isGameType = GAME_TYPES.includes(event.type);
+
+const [planData, assignments, checklist, allStaff, rsvps] = await Promise.all([
+  isGameType ? null : client.query(api.plans.getPlanForEvent, { eventId: id as Id<"events"> }),
+  client.query(api.assignments.getAssignmentsForEvent, { eventId: id as Id<"events"> }),
+  isGameType ? client.query(api.gameDayChecklists.getChecklistForEvent, { eventId: id as Id<"events"> }) : null,
+  client.query(api.assignments.getAvailableStaffForEvent, { eventId: id as Id<"events"> }),
+  client.query(api.eventRsvp.getRsvpsForEvent, { eventId: id as Id<"events"> }),
+]);
+
+const rsvpMap = new Map<string, "confirmed" | "maybe" | "declined">();
+for (const r of rsvps) rsvpMap.set(r.clerkId, r.status);
+const confirmedCount = rsvps.filter(r => r.status === "confirmed").length;
+const maybeCount     = rsvps.filter(r => r.status === "maybe").length;
+const declinedCount  = rsvps.filter(r => r.status === "declined").length;
+
+// For practice types: plan; for game types: checklist
+const hasPlan = !isGameType && planData !== null;
+const hasChecklist = isGameType && checklist !== null;
+const canPublish = isGameType ? hasChecklist : hasPlan;
+
+// Group plan drills by section for display
+type DrillsBySection = Map<string, Array<{ name: string }>>;
+const drillsBySection: DrillsBySection = new Map();
+if (planData) {
+  for (const pd of planData.drills) {
+    const key = pd.section;
+    if (!drillsBySection.has(key)) drillsBySection.set(key, []);
+    drillsBySection.get(key)!.push({ name: pd.drill?.name ?? "—" });
+  }
+}
+
+function formatDateTime(ts: number): string {
+  return new Date(ts).toLocaleString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    hour: "numeric", minute: "2-digit",
+  });
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  practice: "Program Training (legacy)",
+  program_training: "Program Training",
+  individual_practice: "Individual Practice",
+  game: "Game",
+  other: "Other",
+  speed_series: "Speed Series",
+  shootaround: "Shootaround",
+  team_practice: "Team Practice",
+  scrimmage: "Scrimmage",
+  festival: "Festival",
+};
+
+const TYPE_COLORS: Record<string, string> = {
+  practice: "bg-indigo-100 text-indigo-700",
+  program_training: "bg-indigo-100 text-indigo-700",
+  individual_practice: "bg-purple-100 text-purple-700",
+  game: "bg-red-100 text-red-700",
+  other: "bg-gray-100 text-gray-700",
+  speed_series: "bg-orange-100 text-orange-700",
+  shootaround: "bg-sky-100 text-sky-700",
+  team_practice: "bg-blue-100 text-blue-700",
+  scrimmage: "bg-teal-100 text-teal-700",
+  festival: "bg-green-100 text-green-700",
+};
+
+const STATION_LABELS: Record<string, string> = {
+  stretch: "Stretch",
+  warmup: "Warmup",
+  offense: "Offense",
+  ground_balls: "Ground Balls",
+  defense: "Defense",
+  "3v3_combat": "3v3 Combat",
+  team_specific: "Team Specific",
+  u6_practice: "U6 Practice",
+};
+
+const SECTION_LABELS: Record<string, string> = {
+  stretch: "Stretch",
+  warmup: "Warmup",
+  offense: "Offense",
+  ground_balls: "Ground Balls",
+  defense: "Defense",
+  "3v3_combat": "3v3 Combat",
+  team_specific: "Team Specific",
+  u6_practice: "U6 Practice (Scoopers)",
+};
+---
+
+<AdminDashboardLayout title={event.title} currentTab="events" breadcrumbs={[{ name: "Events", href: "/admin/events" }, { name: event.title, href: Astro.url.pathname }]}>
+
+  <!-- Back + Actions -->
+  <div class="mb-6 flex items-center justify-between">
+    <a href="/admin/events" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 010 1.06L8.06 10l3.72 3.72a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0Z" clip-rule="evenodd" />
+      </svg>
+      All Events
+    </a>
+    <div class="flex items-center gap-3">
+      <a
+        href={`/admin/events/${id}/edit`}
+        class="rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+      >
+        Edit
+      </a>
+      <button
+        id="publishBtn"
+        type="button"
+        disabled={!canPublish || event.published === true}
+        class={`rounded-md px-4 py-2 text-sm font-semibold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${
+          canPublish && !event.published
+            ? "bg-indigo-600 hover:bg-indigo-500 cursor-pointer"
+            : "bg-gray-300 cursor-not-allowed"
+        }`}
+        title={!canPublish
+          ? (isGameType ? "Create a game checklist before publishing" : "Attach a practice plan before publishing")
+          : event.published ? "Already published" : "Publish this event"}
+      >
+        {event.published ? "Published" : "Publish Event"}
+      </button>
+    </div>
+  </div>
+
+  {!canPublish && (
+    <div class="mb-6 rounded-md bg-amber-50 border border-amber-200 p-4">
+      <p class="text-sm text-amber-800">
+        {isGameType
+          ? <><strong>No game checklist attached.</strong> The Publish button is disabled until a game checklist is created.</>
+          : <><strong>No practice plan attached.</strong> The Publish button is disabled until a practice plan is created for this event.</>
+        }
+      </p>
+    </div>
+  )}
+
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+    <!-- Left: Event Details -->
+    <div class="lg:col-span-2 space-y-6">
+
+      <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5">
+        <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-gray-900">Event Details</h2>
+            <p class="mt-0.5 text-sm text-gray-500">Scheduling and configuration</p>
+          </div>
+          <div class="flex gap-2">
+            <span class={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TYPE_COLORS[event.type] ?? "bg-gray-100 text-gray-700"}`}>
+              {TYPE_LABELS[event.type] ?? event.type}
+            </span>
+            {event.published ? (
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">Published</span>
+            ) : (
+              <span class="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-700">Draft</span>
+            )}
+          </div>
+        </div>
+        <dl class="divide-y divide-gray-100">
+          <div class="px-6 py-4 sm:grid sm:grid-cols-3 sm:gap-4">
+            <dt class="text-sm font-medium text-gray-900">Date &amp; Time</dt>
+            <dd class="mt-1 text-sm text-gray-700 sm:col-span-2 sm:mt-0">{formatDateTime(event.date)}</dd>
+          </div>
+          <div class="px-6 py-4 sm:grid sm:grid-cols-3 sm:gap-4">
+            <dt class="text-sm font-medium text-gray-900">Type</dt>
+            <dd class="mt-1 text-sm text-gray-700 sm:col-span-2 sm:mt-0">{TYPE_LABELS[event.type] ?? event.type}</dd>
+          </div>
+          {event.targetAgeGroup && (
+            <div class="px-6 py-4 sm:grid sm:grid-cols-3 sm:gap-4">
+              <dt class="text-sm font-medium text-gray-900">Age Group</dt>
+              <dd class="mt-1 text-sm text-gray-700 sm:col-span-2 sm:mt-0">{event.targetAgeGroup}</dd>
+            </div>
+          )}
+          <div class="px-6 py-4 sm:grid sm:grid-cols-3 sm:gap-4">
+            <dt class="text-sm font-medium text-gray-900">Location</dt>
+            <dd class="mt-1 text-sm text-gray-700 sm:col-span-2 sm:mt-0">{event.location ?? "—"}</dd>
+          </div>
+          <div class="px-6 py-4 sm:grid sm:grid-cols-3 sm:gap-4">
+            <dt class="text-sm font-medium text-gray-900">Duration</dt>
+            <dd class="mt-1 text-sm text-gray-700 sm:col-span-2 sm:mt-0">
+              {event.durationMinutes ? `${event.durationMinutes} minutes` : "—"}
+            </dd>
+          </div>
+          {event.notes && (
+            <div class="px-6 py-4 sm:grid sm:grid-cols-3 sm:gap-4">
+              <dt class="text-sm font-medium text-gray-900">Notes</dt>
+              <dd class="mt-1 text-sm text-gray-700 sm:col-span-2 sm:mt-0 whitespace-pre-line">{event.notes}</dd>
+            </div>
+          )}
+        </dl>
+      </div>
+
+      <!-- Practice Plan or Game Checklist Section -->
+      {isGameType ? (
+        <!-- Game Day Checklist -->
+        <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5">
+          <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-semibold text-gray-900">Game Day Checklist</h2>
+              <p class="mt-0.5 text-sm text-gray-500">Warmup drills, equipment, and game schedule</p>
+            </div>
+            <a
+              href={`/admin/events/${id}/checklist`}
+              class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              {hasChecklist ? "Edit Checklist" : "Create Checklist"}
+            </a>
+          </div>
+          <div class="px-6 py-5">
+            {hasChecklist ? (
+              <div class="space-y-2">
+                <p class="text-sm text-gray-700">
+                  <span class="font-medium">{checklist!.warmupDrillIds.length}</span> warmup drill{checklist!.warmupDrillIds.length !== 1 ? "s" : ""} selected
+                </p>
+                <p class="text-sm text-gray-700">
+                  <span class="font-medium">{checklist!.gameSchedule.length}</span> game schedule row{checklist!.gameSchedule.length !== 1 ? "s" : ""}
+                </p>
+                <p class="text-sm text-gray-700">
+                  <span class="font-medium">{checklist!.equipmentItems.length}</span> equipment item{checklist!.equipmentItems.length !== 1 ? "s" : ""}
+                </p>
+              </div>
+            ) : (
+              <p class="text-sm text-gray-500">
+                No checklist yet. <a href={`/admin/events/${id}/checklist`} class="text-indigo-600 hover:underline">Create one</a> to enable publishing.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <!-- Practice Plan -->
+        <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5">
+          <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-semibold text-gray-900">Practice Plan</h2>
+              <p class="mt-0.5 text-sm text-gray-500">Drills and reps for this session</p>
+            </div>
+            <a
+              href={`/admin/events/${id}/plan`}
+              class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              {hasPlan ? "Edit Plan" : "Create Plan"}
+            </a>
+          </div>
+          <div class="px-6 py-5">
+            {hasPlan ? (
+              <div>
+                <p class="text-sm font-medium text-gray-900 mb-3">{planData!.plan.name}</p>
+                {drillsBySection.size === 0 ? (
+                  <p class="text-sm text-gray-400">No drills added yet.</p>
+                ) : (
+                  <div class="space-y-3">
+                    {Array.from(drillsBySection.entries()).map(([section, sectionDrills]) => (
+                      <div>
+                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                          {SECTION_LABELS[section] ?? section}
+                        </p>
+                        <ul class="space-y-0.5">
+                          {sectionDrills.map((d) => (
+                            <li class="text-sm text-gray-700">• {d.name}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p class="text-sm text-gray-500">No practice plan yet. <a href={`/admin/events/${id}/plan`} class="text-indigo-600 hover:underline">Create one</a> to enable publishing.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <!-- Staff Assignments Section -->
+      <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5">
+        <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-semibold text-gray-900">Staff Assignments</h2>
+            <p class="mt-0.5 text-sm text-gray-500">Who is coaching which station</p>
+          </div>
+          <a
+            href={`/admin/events/${id}/staff`}
+            class="rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+          >
+            Manage Staff
+          </a>
+        </div>
+        <div class="px-6 py-5">
+          {assignments.length === 0 ? (
+            <p class="text-sm text-gray-500">No staff assigned yet.</p>
+          ) : (
+            <ul class="divide-y divide-gray-100">
+              {assignments.map((a) => (
+                <li class="flex items-center justify-between py-2.5">
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">{a.staffName}</p>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                      {STATION_LABELS[a.station] ?? a.station}
+                      {a.ageGroup ? ` — ${a.ageGroup}` : ""}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <!-- Coach RSVPs Section -->
+      <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5">
+        <div class="px-6 py-5 border-b border-gray-100">
+          <h2 class="text-base font-semibold text-gray-900">Coach RSVPs</h2>
+          <p class="mt-0.5 text-sm text-gray-500">Who has responded to this event</p>
+        </div>
+        <div class="px-6 py-5">
+          {allStaff.length === 0 ? (
+            <p class="text-sm text-gray-500">No approved staff found.</p>
+          ) : (
+            <div>
+              <p class="text-sm text-gray-600 mb-4">
+                <span class="font-medium text-green-700">{confirmedCount} Going</span>
+                {" · "}
+                <span class="font-medium text-yellow-700">{maybeCount} Maybe</span>
+                {" · "}
+                <span class="font-medium text-red-700">{declinedCount} Can't Go</span>
+              </p>
+              <ul class="divide-y divide-gray-100">
+                {allStaff.map((s) => {
+                  const status = rsvpMap.get(s.clerkId);
+                  const badgeClass = status === "confirmed"
+                    ? "bg-green-100 text-green-700"
+                    : status === "maybe"
+                    ? "bg-yellow-100 text-yellow-700"
+                    : status === "declined"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-gray-100 text-gray-500";
+                  const badgeLabel = status === "confirmed" ? "Going"
+                    : status === "maybe" ? "Maybe"
+                    : status === "declined" ? "Can't Go"
+                    : "No Response";
+                  return (
+                    <li class="flex items-center justify-between py-2.5">
+                      <p class="text-sm font-medium text-gray-900">{s.name || s.email}</p>
+                      <span class={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeClass}`}>
+                        {badgeLabel}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Quick Actions -->
+    <div class="space-y-4">
+      <div class="bg-white rounded-xl shadow-sm ring-1 ring-gray-900/5 p-6">
+        <h3 class="text-sm font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <nav class="space-y-2">
+          {isGameType ? (
+            <a href={`/admin/events/${id}/checklist`} class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-indigo-600">
+              <svg class="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+              </svg>
+              Game Checklist
+            </a>
+          ) : (
+            <a href={`/admin/events/${id}/plan`} class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-indigo-600">
+              <svg class="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+              </svg>
+              Practice Plan
+            </a>
+          )}
+          <a href={`/admin/events/${id}/staff`} class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-indigo-600">
+            <svg class="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+            </svg>
+            Staff Assignments
+          </a>
+          <a href={`/admin/events/${id}/edit`} class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-indigo-600">
+            <svg class="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+            </svg>
+            Edit Event
+          </a>
+        </nav>
+      </div>
+
+      <!-- Danger zone: delete -->
+      <div class="bg-white rounded-xl shadow-sm ring-1 ring-red-200 p-6">
+        <h3 class="text-sm font-semibold text-red-700 mb-3">Danger Zone</h3>
+        <form action="/api/admin/events/delete" method="POST">
+          <input type="hidden" name="eventId" value={id} />
+          <button
+            type="submit"
+            class="w-full rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 ring-1 ring-inset ring-red-200 hover:bg-red-100"
+            onclick="return confirm('Delete this event? This cannot be undone.')"
+          >
+            Delete Event
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</AdminDashboardLayout>
+
+<script is:inline define:vars={{ eventId: id, canPublish, isPublished: event.published }}>
+  const btn = document.getElementById("publishBtn");
+  if (btn && canPublish && !isPublished) {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Publishing…";
+      try {
+        const res = await fetch("/api/admin/events/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          window.location.reload();
+        } else {
+          alert(data.error ?? "Failed to publish.");
+          btn.disabled = false;
+          btn.textContent = "Publish Event";
+        }
+      } catch {
+        alert("Network error. Please try again.");
+        btn.disabled = false;
+        btn.textContent = "Publish Event";
+      }
+    });
+  }
+</script>

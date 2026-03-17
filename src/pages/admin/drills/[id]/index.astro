@@ -1,0 +1,182 @@
+---
+import AdminDashboardLayout from "@layouts/AdminDashboardLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
+
+const { userId } = Astro.locals.auth();
+if (!userId) return Astro.redirect("/");
+
+const { id } = Astro.params;
+if (!id) return Astro.redirect("/admin/drills");
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const callerUser = await client.query(api.users.getUserByClerkId, { clerkId: userId });
+if (!callerUser || callerUser.role !== "admin") return Astro.redirect("/");
+
+const drill = await client.query(api.drills.getDrill, { id: id as Id<"drills"> });
+if (!drill) return Astro.redirect("/admin/drills");
+
+const stats = await client.query(api.drills.getDrillStats, { id: id as Id<"drills"> });
+
+const SECTION_LABELS: Record<string, string> = {
+  stretch: "Stretch",
+  warmup: "Warmup",
+  offense: "Offense",
+  ground_balls: "Ground Balls",
+  defense: "Defense",
+  "3v3_combat": "3v3 Combat",
+  team_specific: "Team Specific",
+  u6_practice: "U6 Practice",
+};
+---
+
+<AdminDashboardLayout title={drill.name} currentTab="drills" breadcrumbs={[{ name: "Drills", href: "/admin/drills" }, { name: drill.name, href: Astro.url.pathname }]}>
+
+  <!-- Back + Edit header -->
+  <div class="mb-6 flex items-center justify-between">
+    <a href="/admin/drills" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 010 1.06L8.06 10l3.72 3.72a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0Z" clip-rule="evenodd" />
+      </svg>
+      Back to Drill Library
+    </a>
+    <a
+      href={`/admin/drills/${drill._id}/edit`}
+      class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+    >
+      Edit Drill
+    </a>
+  </div>
+
+  <!-- Header card -->
+  <div class="bg-white shadow-sm rounded-xl ring-1 ring-gray-900/5 px-6 py-6 sm:px-8 mb-6">
+    <div class="flex flex-wrap items-start gap-4">
+      <div class="flex-1 min-w-0">
+        <h2 class="text-xl font-semibold text-gray-900">{drill.name}</h2>
+        <div class="mt-2 flex flex-wrap gap-2">
+          {drill.defaultSection && (
+            <span class="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+              {SECTION_LABELS[drill.defaultSection] ?? drill.defaultSection}
+            </span>
+          )}
+          {(drill.suitableAgeGroups ?? []).map((ag) => (
+            <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">{ag}</span>
+          ))}
+          {(drill.suitableAgeGroups ?? []).length === 0 && (
+            <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">All ages</span>
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- Info row -->
+    <dl class="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div>
+        <dt class="text-xs font-medium text-gray-500 uppercase tracking-wide">Duration</dt>
+        <dd class="mt-1 text-sm font-semibold text-gray-900">{drill.defaultDurationMinutes} min</dd>
+      </div>
+      <div>
+        <dt class="text-xs font-medium text-gray-500 uppercase tracking-wide">Reps / min</dt>
+        <dd class="mt-1 text-sm font-semibold text-gray-900">{drill.repsPerMinute}</dd>
+      </div>
+      {drill.description && (
+        <div class="col-span-2 sm:col-span-3">
+          <dt class="text-xs font-medium text-gray-500 uppercase tracking-wide">Description</dt>
+          <dd class="mt-1 text-sm text-gray-700">{drill.description}</dd>
+        </div>
+      )}
+    </dl>
+  </div>
+
+  <!-- Diagram + Video row -->
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-2 mb-6">
+
+    <!-- Diagram -->
+    <div class="bg-white shadow-sm rounded-xl ring-1 ring-gray-900/5 px-6 py-6 sm:px-8">
+      <h3 class="text-sm font-semibold text-gray-900 mb-4">Diagram</h3>
+      {drill.diagramSvg ? (
+        <div class="w-full overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-2" set:html={drill.diagramSvg} />
+      ) : (
+        <div class="flex items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 py-12">
+          <div class="text-center">
+            <svg class="mx-auto size-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+            </svg>
+            <p class="mt-2 text-sm text-gray-500">No diagram uploaded yet.</p>
+            <p class="text-xs text-gray-400">Add one from the <a href={`/admin/drills/${drill._id}/edit`} class="text-indigo-600 hover:underline">edit page</a>.</p>
+          </div>
+        </div>
+      )}
+    </div>
+
+    <!-- Video -->
+    <div class="bg-white shadow-sm rounded-xl ring-1 ring-gray-900/5 px-6 py-6 sm:px-8">
+      <h3 class="text-sm font-semibold text-gray-900 mb-4">Video Reference</h3>
+      {drill.videoUrl ? (
+        <a
+          href={drill.videoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center gap-2 rounded-md bg-indigo-50 px-4 py-2.5 text-sm font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+        >
+          <svg class="size-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+          </svg>
+          Watch video &rarr;
+        </a>
+      ) : (
+        <p class="text-sm text-gray-400 italic">No video link added.</p>
+      )}
+    </div>
+
+  </div>
+
+  <!-- Usage Stats -->
+  <div class="bg-white shadow-sm rounded-xl ring-1 ring-gray-900/5 px-6 py-6 sm:px-8">
+    <h3 class="text-sm font-semibold text-gray-900 mb-4">Usage Stats</h3>
+
+    {stats.isStale && (
+      <div class="mb-5 flex items-start gap-3 rounded-md bg-amber-50 px-4 py-3 ring-1 ring-amber-200">
+        <svg class="mt-0.5 size-4 shrink-0 text-amber-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+        </svg>
+        <p class="text-sm text-amber-700">This drill has never been used in a practice plan.</p>
+      </div>
+    )}
+
+    <dl class="grid grid-cols-2 gap-4 sm:grid-cols-3 mb-6">
+      <div class="rounded-lg bg-gray-50 px-4 py-3">
+        <dt class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Uses</dt>
+        <dd class="mt-1 text-2xl font-bold text-gray-900">{stats.totalUses}</dd>
+      </div>
+      <div class="rounded-lg bg-gray-50 px-4 py-3">
+        <dt class="text-xs font-medium text-gray-500 uppercase tracking-wide">Unique Plans</dt>
+        <dd class="mt-1 text-2xl font-bold text-gray-900">{stats.uniquePlans}</dd>
+      </div>
+    </dl>
+
+    {Object.keys(stats.sectionBreakdown).length > 0 && (
+      <div>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Section Breakdown</p>
+        <table class="min-w-full divide-y divide-gray-200 rounded-lg overflow-hidden ring-1 ring-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Section</th>
+              <th class="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Times Used</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100 bg-white">
+            {Object.entries(stats.sectionBreakdown).sort((a, b) => b[1] - a[1]).map(([section, count]) => (
+              <tr>
+                <td class="px-4 py-2.5 text-sm text-gray-700">{SECTION_LABELS[section] ?? section}</td>
+                <td class="px-4 py-2.5 text-right text-sm font-semibold text-gray-900">{count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+
+</AdminDashboardLayout>
