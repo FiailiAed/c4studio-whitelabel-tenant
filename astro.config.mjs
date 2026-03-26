@@ -10,7 +10,11 @@ export default defineConfig({
     ? `https://${process.env.VERCEL_URL}`
     : 'https://c4studio-bas-template.vercel.app/',
   output: 'server',
-  adapter: vercel(),
+  adapter: vercel({
+    webAnalytics: {
+      enabled: true, // set to false when using @vercel/analytics@1.4.0
+    },
+  }),
   security: {
     checkOrigin: false,
   },

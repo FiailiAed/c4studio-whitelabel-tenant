@@ -14,6 +14,7 @@
     "@astrojs/vercel": "^9.0.4",
     "@clerk/astro": "^2.17.7",
     "@tailwindcss/vite": "^4.2.1",
+    "@vercel/analytics": "^2.0.1",
     "astro": "^5.17.1",
     "convex": "^1.32.0",
     "svix": "^1.86.0",

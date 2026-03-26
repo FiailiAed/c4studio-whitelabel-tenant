@@ -1,4 +1,6 @@
 ---
+import Analytics from '@vercel/analytics/astro';
+
 import '../styles/global.css';
 import Breadcrumb from '../components/Breadcrumb.astro';
 
@@ -25,6 +27,7 @@ const primaryTabs = [
   <link rel="icon" href="/favicon.ico" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{title} — Platform Admin</title>
+  <Analytics />
 </head>
 <body class="h-full bg-gray-50">
 
