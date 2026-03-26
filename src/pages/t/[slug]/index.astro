@@ -1,0 +1,80 @@
+---
+import TenantLayout from "@layouts/TenantLayout.astro";
+
+const tenant = Astro.locals.tenant;
+const membership = Astro.locals.membership;
+const isImpersonating = Astro.locals.isImpersonating ?? false;
+
+if (!tenant) return Astro.redirect("/");
+
+const clerkUser = await Astro.locals.currentUser();
+const firstName = clerkUser?.firstName ?? "";
+const tenantRole = isImpersonating ? "admin" : (membership?.tenantRole ?? "member");
+---
+
+<TenantLayout
+  title="Dashboard"
+  tenant={tenant}
+  currentTab="home"
+  tenantRole={tenantRole}
+  isImpersonating={isImpersonating}
+>
+  <div class="space-y-5">
+
+    <!-- Welcome card -->
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-1">
+      <h1 class="text-xl font-bold text-gray-900">
+        Welcome{firstName ? `, ${firstName}` : ""}!
+      </h1>
+      <p class="text-sm text-gray-500">
+        You're in <span class="font-medium text-gray-700">{tenant.name}</span>
+        {!isImpersonating && membership && (
+          <span> as <span class="capitalize font-medium text-gray-700">{membership.tenantRole}</span></span>
+        )}
+        {isImpersonating && (
+          <span class="ml-1 text-amber-600 text-xs font-medium">(impersonating)</span>
+        )}
+      </p>
+    </div>
+
+    <!-- Feature placeholder cards -->
+    <div class="grid grid-cols-1 gap-3">
+      <div class="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center space-y-2">
+        <div class="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-gray-100 mx-auto">
+          <svg class="size-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+        </div>
+        <p class="text-sm font-medium text-gray-700">Coming Soon</p>
+        <p class="text-xs text-gray-400">Features for this portal are being set up.</p>
+      </div>
+    </div>
+
+    {(tenantRole === "admin" || isImpersonating) && (
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-2">
+        <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Admin</h2>
+        <div class="space-y-1">
+          <a
+            href={`/t/${tenant.slug}/members`}
+            class="flex items-center justify-between rounded-lg px-3 py-2.5 hover:bg-gray-50 transition-colors"
+          >
+            <span class="text-sm font-medium text-gray-700">Manage Members</span>
+            <svg class="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+          </a>
+          <a
+            href={`/t/${tenant.slug}/settings`}
+            class="flex items-center justify-between rounded-lg px-3 py-2.5 hover:bg-gray-50 transition-colors"
+          >
+            <span class="text-sm font-medium text-gray-700">Branding Settings</span>
+            <svg class="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+          </a>
+        </div>
+      </div>
+    )}
+
+  </div>
+</TenantLayout>

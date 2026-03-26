@@ -1,0 +1,135 @@
+---
+import '../styles/global.css';
+import Breadcrumb from '../components/Breadcrumb.astro';
+
+interface Props {
+  title: string;
+  tenant: {
+    name: string;
+    slug: string;
+    logoUrl?: string | null;
+    primaryColor?: string | null;
+  };
+  currentTab: "home" | "members" | "settings";
+  breadcrumbs?: { name: string; href: string }[];
+  isImpersonating?: boolean;
+  tenantRole?: string;
+}
+
+const { title, tenant, currentTab, breadcrumbs = [], isImpersonating = false, tenantRole } = Astro.props;
+const color = tenant.primaryColor ?? "#6366f1";
+
+const tabs = [
+  { key: "home",     label: "Home",     href: `/t/${tenant.slug}` },
+  { key: "members",  label: "Members",  href: `/t/${tenant.slug}/members` },
+  { key: "settings", label: "Settings", href: `/t/${tenant.slug}/settings` },
+] as const;
+
+const adminTabs = tabs.filter((t) => t.key === "home" || tenantRole === "admin" || isImpersonating);
+---
+
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" href="/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title} — {tenant.name}</title>
+  <style define:vars={{ primaryColor: color }}>
+    :root {
+      --color-primary: var(--primaryColor);
+      --color-primary-hover: color-mix(in srgb, var(--primaryColor) 85%, black);
+    }
+  </style>
+</head>
+<body class="h-full bg-gray-50">
+
+  {isImpersonating && (
+    <div class="fixed top-0 inset-x-0 z-50 bg-amber-500 text-white text-sm py-2 px-4 flex items-center justify-between">
+      <span class="font-medium">Impersonating: {tenant.name}</span>
+      <form method="POST" action="/api/super-admin/impersonation/exit">
+        <button type="submit" class="text-white underline text-xs font-medium hover:no-underline">
+          Exit Impersonation
+        </button>
+      </form>
+    </div>
+  )}
+
+  <!-- Top bar -->
+  <div class={`bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between${isImpersonating ? " mt-10" : ""}`}>
+    <div class="flex items-center gap-3">
+      {tenant.logoUrl ? (
+        <img src={tenant.logoUrl} alt={tenant.name} class="h-7 w-auto object-contain" />
+      ) : (
+        <span
+          class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-white text-xs font-bold shrink-0"
+          style={`background-color: var(--color-primary)`}
+        >
+          {tenant.name.slice(0, 2).toUpperCase()}
+        </span>
+      )}
+      <p class="text-base font-semibold text-gray-900">{tenant.name}</p>
+    </div>
+    <details class="relative">
+      <summary class="flex items-center justify-center size-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors cursor-pointer list-none">
+        <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+        </svg>
+        <span class="sr-only">Open user menu</span>
+      </summary>
+      <div class="absolute right-0 z-50 mt-2 w-44 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black/5">
+        <a href="/profile" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Profile</a>
+        <a href="/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Back to home</a>
+        <a href="/sign-out" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Sign out</a>
+      </div>
+    </details>
+  </div>
+
+  <Breadcrumb items={breadcrumbs} />
+
+  <!-- Main content -->
+  <main class="pb-24">
+    <div class="px-4 py-4">
+      <slot />
+    </div>
+  </main>
+
+  <!-- Fixed bottom nav -->
+  <nav
+    class="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 flex"
+    style="padding-bottom: env(safe-area-inset-bottom)"
+  >
+    {adminTabs.map((tab) => {
+      const isActive = tab.key === currentTab;
+      return (
+        <a
+          href={tab.href}
+          class={`flex flex-col items-center py-2 min-h-11 text-xs font-medium flex-1 transition-colors ${isActive ? "" : "text-gray-500 hover:text-gray-700"}`}
+          style={isActive ? `color: var(--color-primary)` : undefined}
+          aria-current={isActive ? "page" : undefined}
+        >
+          {tab.key === "home" && (
+            <svg class="size-6 mb-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+            </svg>
+          )}
+          {tab.key === "members" && (
+            <svg class="size-6 mb-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+            </svg>
+          )}
+          {tab.key === "settings" && (
+            <svg class="size-6 mb-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+          )}
+          {tab.label}
+        </a>
+      );
+    })}
+  </nav>
+
+</body>
+</html>

@@ -1,0 +1,132 @@
+---
+import TenantLayout from "@layouts/TenantLayout.astro";
+
+const tenant = Astro.locals.tenant;
+const membership = Astro.locals.membership;
+const isImpersonating = Astro.locals.isImpersonating ?? false;
+
+if (!tenant) return Astro.redirect("/");
+
+const tenantRole = isImpersonating ? "admin" : (membership?.tenantRole ?? "member");
+if (tenantRole !== "admin") return Astro.redirect(`/t/${tenant.slug}`);
+---
+
+<TenantLayout
+  title="Settings"
+  tenant={tenant}
+  currentTab="settings"
+  tenantRole={tenantRole}
+  isImpersonating={isImpersonating}
+  breadcrumbs={[
+    { name: tenant.name, href: `/t/${tenant.slug}` },
+    { name: "Settings", href: `/t/${tenant.slug}/settings` },
+  ]}
+>
+  <div class="space-y-5">
+
+    <div id="error-banner" class="hidden bg-red-50 border border-red-200 rounded-xl p-3">
+      <p class="text-sm text-red-700" id="error-message"></p>
+    </div>
+
+    <!-- Live branding preview -->
+    <div id="preview-bar" class="rounded-xl p-4 text-white flex items-center gap-3 transition-all"
+      style={`background-color: ${tenant.primaryColor ?? "#6366f1"}`}>
+      <span id="preview-logo-text"
+        class="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-white/20 text-white font-bold text-sm">
+        {tenant.name.slice(0, 2).toUpperCase()}
+      </span>
+      <div>
+        <p id="preview-name" class="font-semibold">{tenant.name}</p>
+        <p class="text-xs opacity-75">Live preview</p>
+      </div>
+    </div>
+
+    <form id="settings-form" class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+      <h2 class="text-sm font-semibold text-gray-700">Branding</h2>
+
+      <div class="space-y-1.5">
+        <label for="name" class="block text-sm font-medium text-gray-700">Display Name</label>
+        <input id="name" name="name" type="text" required value={tenant.name}
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="primaryColor" class="block text-sm font-medium text-gray-700">Primary Color</label>
+        <div class="flex items-center gap-2">
+          <input id="primaryColor-picker" type="color" value={tenant.primaryColor ?? "#6366f1"}
+            class="h-9 w-12 rounded border border-gray-300 cursor-pointer p-0.5" />
+          <input id="primaryColor" name="primaryColor" type="text" value={tenant.primaryColor ?? "#6366f1"}
+            pattern="^#[0-9a-fA-F]{6}$"
+            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+        </div>
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="logoUrl" class="block text-sm font-medium text-gray-700">Logo URL</label>
+        <input id="logoUrl" name="logoUrl" type="url" value={tenant.logoUrl ?? ""}
+          placeholder="https://example.com/logo.png"
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+        <p class="text-xs text-gray-400">Enter a URL to a publicly accessible image.</p>
+      </div>
+
+      <button type="submit" id="save-btn"
+        class="w-full font-semibold rounded-xl py-2.5 text-sm text-white transition-colors disabled:opacity-60"
+        style="background-color: var(--color-primary)">
+        Save Branding
+      </button>
+    </form>
+
+  </div>
+</TenantLayout>
+
+<script define:vars={{ tenantId: tenant._id }} is:inline>
+  const picker = document.getElementById('primaryColor-picker');
+  const hexInput = document.getElementById('primaryColor');
+  const previewBar = document.getElementById('preview-bar');
+  const previewName = document.getElementById('preview-name');
+  const nameInput = document.getElementById('name');
+
+  function updatePreviewColor(val) {
+    if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+      previewBar.style.backgroundColor = val;
+    }
+  }
+
+  picker?.addEventListener('input', function () {
+    hexInput.value = picker.value;
+    updatePreviewColor(picker.value);
+  });
+  hexInput?.addEventListener('input', function () {
+    if (/^#[0-9a-fA-F]{6}$/.test(hexInput.value)) {
+      picker.value = hexInput.value;
+      updatePreviewColor(hexInput.value);
+    }
+  });
+  nameInput?.addEventListener('input', function () {
+    previewName.textContent = nameInput.value || 'Tenant Name';
+  });
+
+  document.getElementById('settings-form')?.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    const data = Object.fromEntries(new FormData(this).entries());
+    if (!data.logoUrl) delete data.logoUrl;
+    data.id = tenantId;
+    try {
+      const res = await fetch('/api/super-admin/tenants/update', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Error saving');
+      window.location.reload();
+    } catch (err) {
+      const banner = document.getElementById('error-banner');
+      document.getElementById('error-message').textContent = err.message;
+      banner.classList.remove('hidden');
+      btn.disabled = false;
+      btn.textContent = 'Save Branding';
+    }
+  });
+</script>

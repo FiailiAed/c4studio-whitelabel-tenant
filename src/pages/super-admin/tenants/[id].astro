@@ -1,0 +1,278 @@
+---
+import SuperAdminLayout from "@layouts/SuperAdminLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+
+const { id } = Astro.params;
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+
+const tenant = await client.query(api.tenants.getTenant, { id: id as Id<"tenants"> });
+if (!tenant) return Astro.redirect("/super-admin/tenants");
+
+const [members, allUsers] = await Promise.all([
+  client.query(api.tenantMembers.listTenantMembers, { tenantId: tenant._id }),
+  client.query(api.users.listAllUsers, {}),
+]);
+
+const memberDetails = members.map((m) => {
+  const user = allUsers.find((u) => u.clerkId === m.clerkId);
+  return { ...m, user };
+});
+---
+
+<SuperAdminLayout
+  title={tenant.name}
+  currentTab="tenants"
+  breadcrumbs={[
+    { name: "Tenants", href: "/super-admin/tenants" },
+    { name: tenant.name, href: `/super-admin/tenants/${id}` },
+  ]}
+>
+  <div class="space-y-5">
+
+    <div id="error-banner" class="hidden bg-red-50 border border-red-200 rounded-xl p-3">
+      <p class="text-sm text-red-700" id="error-message"></p>
+    </div>
+
+    <!-- Branding preview -->
+    <div
+      class="rounded-xl p-4 text-white flex items-center gap-3"
+      style={`background-color: ${tenant.primaryColor ?? "#6366f1"}`}
+    >
+      {tenant.logoUrl ? (
+        <img src={tenant.logoUrl} alt={tenant.name} class="h-10 w-10 rounded-lg object-contain bg-white/20 p-1" />
+      ) : (
+        <span class="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-white/20 text-white font-bold text-sm">
+          {tenant.name.slice(0, 2).toUpperCase()}
+        </span>
+      )}
+      <div>
+        <p class="font-semibold">{tenant.name}</p>
+        <p class="text-xs opacity-75">/t/{tenant.slug}</p>
+      </div>
+    </div>
+
+    <!-- Edit form -->
+    <form id="edit-form" class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+      <h2 class="text-sm font-semibold text-gray-700">Tenant Settings</h2>
+
+      <div class="space-y-1.5">
+        <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
+        <input id="name" name="name" type="text" required value={tenant.name}
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="slug" class="block text-sm font-medium text-gray-700">Slug</label>
+        <div class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500">
+          <span class="text-sm text-gray-400 shrink-0">/t/</span>
+          <input id="slug" name="slug" type="text" required value={tenant.slug}
+            pattern="[a-z0-9][a-z0-9\-]*[a-z0-9]"
+            class="flex-1 text-sm text-gray-900 outline-none bg-transparent" />
+        </div>
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="primaryColor" class="block text-sm font-medium text-gray-700">Primary Color</label>
+        <div class="flex items-center gap-2">
+          <input id="primaryColor-picker" type="color" value={tenant.primaryColor ?? "#6366f1"}
+            class="h-9 w-12 rounded border border-gray-300 cursor-pointer p-0.5" />
+          <input id="primaryColor" name="primaryColor" type="text" value={tenant.primaryColor ?? "#6366f1"}
+            pattern="^#[0-9a-fA-F]{6}$"
+            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+        </div>
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="logoUrl" class="block text-sm font-medium text-gray-700">Logo URL</label>
+        <input id="logoUrl" name="logoUrl" type="url" value={tenant.logoUrl ?? ""}
+          placeholder="https://example.com/logo.png"
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="customDomain" class="block text-sm font-medium text-gray-700">Custom Domain</label>
+        <input id="customDomain" name="customDomain" type="text" value={tenant.customDomain ?? ""}
+          placeholder="portal.client.com"
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="status" class="block text-sm font-medium text-gray-700">Status</label>
+        <select id="status" name="status"
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none">
+          <option value="active" selected={tenant.status === "active"}>Active</option>
+          <option value="inactive" selected={tenant.status === "inactive"}>Inactive</option>
+        </select>
+      </div>
+
+      <button type="submit" id="save-btn"
+        class="w-full bg-indigo-600 text-white font-semibold rounded-xl py-2.5 text-sm hover:bg-indigo-500 transition-colors disabled:opacity-60">
+        Save Changes
+      </button>
+    </form>
+
+    <!-- Impersonate -->
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+      <h2 class="text-sm font-semibold text-gray-700">Impersonation</h2>
+      <p class="text-xs text-gray-500">View this tenant's portal as if you were a tenant admin.</p>
+      <form method="POST" action="/api/super-admin/impersonation/start">
+        <input type="hidden" name="tenantId" value={tenant._id} />
+        <button type="submit"
+          class="w-full border border-amber-300 text-amber-700 font-medium rounded-xl py-2.5 text-sm hover:bg-amber-50 transition-colors">
+          Impersonate Tenant
+        </button>
+      </form>
+    </div>
+
+    <!-- Members -->
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-gray-700">Members ({members.length})</h2>
+      </div>
+
+      <!-- Add member form -->
+      <form id="add-member-form" class="flex gap-2">
+        <input id="new-clerk-id" name="clerkId" type="text" placeholder="Clerk User ID (user_...)"
+          class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none min-w-0" />
+        <input id="new-role" name="tenantRole" type="text" placeholder="Role (e.g. admin)"
+          class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+        <button type="submit"
+          class="shrink-0 bg-indigo-600 text-white font-medium rounded-lg px-3 py-2 text-sm hover:bg-indigo-500 transition-colors">
+          Add
+        </button>
+      </form>
+
+      {memberDetails.length === 0 && (
+        <p class="text-sm text-gray-400 text-center py-2">No members yet.</p>
+      )}
+
+      {memberDetails.length > 0 && (
+        <div class="space-y-1">
+          {memberDetails.map((m) => (
+            <div class="flex items-center justify-between rounded-lg px-3 py-2.5 hover:bg-gray-50">
+              <div>
+                <p class="text-sm font-medium text-gray-900">
+                  {m.user ? `${m.user.firstName ?? ""} ${m.user.lastName ?? ""}`.trim() || m.user.email : m.clerkId}
+                </p>
+                <p class="text-xs text-gray-500 capitalize">{m.tenantRole}</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class={`text-xs font-medium rounded-full px-2 py-0.5 ${m.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                  {m.status}
+                </span>
+                <button
+                  type="button"
+                  class="remove-btn text-xs text-red-500 hover:text-red-700"
+                  data-clerk-id={m.clerkId}
+                  data-tenant-id={tenant._id}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <!-- Danger zone -->
+    <div class="bg-white rounded-xl border border-red-100 p-5 space-y-3">
+      <h2 class="text-sm font-semibold text-red-700">Danger Zone</h2>
+      <p class="text-xs text-gray-500">Permanently delete this tenant and all its members.</p>
+      <button id="delete-btn" type="button"
+        class="w-full border border-red-200 text-red-600 font-medium rounded-xl py-2.5 text-sm hover:bg-red-50 transition-colors">
+        Delete Tenant
+      </button>
+    </div>
+
+  </div>
+</SuperAdminLayout>
+
+<script define:vars={{ tenantId: tenant._id, tenantSlug: tenant.slug }} is:inline>
+  // Sync color picker ↔ hex input
+  const picker = document.getElementById('primaryColor-picker');
+  const hexInput = document.getElementById('primaryColor');
+  picker?.addEventListener('input', function () { hexInput.value = picker.value; });
+  hexInput?.addEventListener('input', function () {
+    if (/^#[0-9a-fA-F]{6}$/.test(hexInput.value)) picker.value = hexInput.value;
+  });
+
+  // Edit form
+  document.getElementById('edit-form')?.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    const data = Object.fromEntries(new FormData(this).entries());
+    if (!data.logoUrl) delete data.logoUrl;
+    if (!data.customDomain) delete data.customDomain;
+    data.id = tenantId;
+    try {
+      const res = await fetch('/api/super-admin/tenants/update', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Error saving');
+      window.location.reload();
+    } catch (err) {
+      const banner = document.getElementById('error-banner');
+      document.getElementById('error-message').textContent = err.message;
+      banner.classList.remove('hidden');
+      btn.disabled = false;
+      btn.textContent = 'Save Changes';
+    }
+  });
+
+  // Add member
+  document.getElementById('add-member-form')?.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(this).entries());
+    data.tenantId = tenantId;
+    try {
+      const res = await fetch('/api/super-admin/members/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Error adding member');
+      window.location.reload();
+    } catch (err) {
+      const banner = document.getElementById('error-banner');
+      document.getElementById('error-message').textContent = err.message;
+      banner.classList.remove('hidden');
+    }
+  });
+
+  // Remove member
+  document.querySelectorAll('.remove-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      if (!confirm('Remove this member?')) return;
+      try {
+        const res = await fetch('/api/super-admin/members/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId: btn.dataset.tenantId, clerkId: btn.dataset.clerkId }),
+        });
+        if (!res.ok) throw new Error('Error removing member');
+        window.location.reload();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  // Delete tenant
+  document.getElementById('delete-btn')?.addEventListener('click', async function () {
+    if (!confirm('Delete this tenant? This cannot be undone.')) return;
+    try {
+      const res = await fetch('/api/super-admin/tenants/delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: tenantId }),
+      });
+      if (!res.ok) throw new Error('Error deleting tenant');
+      window.location.href = '/super-admin/tenants';
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+</script>

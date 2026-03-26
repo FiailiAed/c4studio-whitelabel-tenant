@@ -29,11 +29,9 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response("Invalid signature", { status: 400 });
   }
 
-  // Upsert on user CREATED or user UPDATED
   if (event.type === "user.created" || event.type === "user.updated") {
-    const { id, email_addresses, first_name, last_name, public_metadata } = event.data;
+    const { id, email_addresses, first_name, last_name } = event.data;
     const email = email_addresses?.[0]?.email_address ?? "";
-    const role = public_metadata?.role === "admin" ? "admin" : "user";
 
     const client = new ConvexHttpClient(convexUrl);
     await client.mutation(api.users.upsertUser, {
@@ -41,9 +39,7 @@ export const POST: APIRoute = async ({ request }) => {
       email,
       firstName: first_name ?? undefined,
       lastName: last_name ?? undefined,
-      role,
     });
-  // Delete user on user DELETE
   } else if (event.type === "user.deleted") {
     const { id } = event.data;
     const client = new ConvexHttpClient(convexUrl);

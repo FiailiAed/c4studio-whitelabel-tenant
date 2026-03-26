@@ -1,0 +1,74 @@
+---
+import SuperAdminLayout from "@layouts/SuperAdminLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../convex/_generated/api";
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const tenants = await client.query(api.tenants.listTenants, {});
+---
+
+<SuperAdminLayout
+  title="Tenants"
+  currentTab="tenants"
+  breadcrumbs={[{ name: "Tenants", href: "/super-admin/tenants" }]}
+>
+  <div class="space-y-4">
+
+    <div class="flex items-center justify-between">
+      <p class="text-sm text-gray-500">{tenants.length} tenant{tenants.length !== 1 ? "s" : ""}</p>
+      <a
+        href="/super-admin/tenants/new"
+        class="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg px-3 py-2 hover:bg-indigo-500 transition-colors"
+      >
+        <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        New Tenant
+      </a>
+    </div>
+
+    {tenants.length === 0 && (
+      <div class="bg-white rounded-xl border border-dashed border-gray-200 p-8 text-center space-y-2">
+        <p class="text-sm font-medium text-gray-700">No tenants yet</p>
+        <p class="text-xs text-gray-500">Create your first tenant to get started.</p>
+        <a href="/super-admin/tenants/new" class="inline-block mt-2 text-sm text-indigo-600 hover:text-indigo-500 font-medium">
+          Create tenant &rarr;
+        </a>
+      </div>
+    )}
+
+    {tenants.length > 0 && (
+      <div class="space-y-2">
+        {tenants.map((t) => (
+          <a
+            href={`/super-admin/tenants/${t._id}`}
+            class="block bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:border-gray-200 hover:shadow-md transition-all"
+          >
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                {t.logoUrl ? (
+                  <img src={t.logoUrl} alt={t.name} class="h-8 w-8 rounded object-contain bg-gray-50" />
+                ) : (
+                  <span
+                    class="inline-flex items-center justify-center h-8 w-8 rounded-lg text-white text-xs font-bold shrink-0"
+                    style={`background-color: ${t.primaryColor ?? "#6366f1"}`}
+                  >
+                    {t.name.slice(0, 2).toUpperCase()}
+                  </span>
+                )}
+                <div>
+                  <p class="text-sm font-semibold text-gray-900">{t.name}</p>
+                  <p class="text-xs text-gray-400">/t/{t.slug}</p>
+                </div>
+              </div>
+              <span class={`text-xs font-medium rounded-full px-2 py-0.5 ${t.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                {t.status}
+              </span>
+            </div>
+          </a>
+        ))}
+      </div>
+    )}
+
+  </div>
+</SuperAdminLayout>

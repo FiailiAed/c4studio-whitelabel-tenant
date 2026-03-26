@@ -8,17 +8,8 @@
  * @module
  */
 
-import type * as assignments from "../assignments.js";
-import type * as documents from "../documents.js";
-import type * as drills from "../drills.js";
-import type * as eventRsvp from "../eventRsvp.js";
-import type * as events from "../events.js";
-import type * as gameDayChecklists from "../gameDayChecklists.js";
-import type * as migrations from "../migrations.js";
-import type * as onboarding from "../onboarding.js";
-import type * as plans from "../plans.js";
-import type * as players from "../players.js";
-import type * as repsLog from "../repsLog.js";
+import type * as tenantMembers from "../tenantMembers.js";
+import type * as tenants from "../tenants.js";
 import type * as users from "../users.js";
 
 import type {
@@ -28,17 +19,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  assignments: typeof assignments;
-  documents: typeof documents;
-  drills: typeof drills;
-  eventRsvp: typeof eventRsvp;
-  events: typeof events;
-  gameDayChecklists: typeof gameDayChecklists;
-  migrations: typeof migrations;
-  onboarding: typeof onboarding;
-  plans: typeof plans;
-  players: typeof players;
-  repsLog: typeof repsLog;
+  tenantMembers: typeof tenantMembers;
+  tenants: typeof tenants;
   users: typeof users;
 }>;
 

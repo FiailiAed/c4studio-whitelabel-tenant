@@ -1,0 +1,84 @@
+---
+import SuperAdminLayout from "@layouts/SuperAdminLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../convex/_generated/api";
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const allUsers = await client.query(api.users.listAllUsers, {});
+
+const sorted = [...allUsers].sort((a, b) => b.createdAt - a.createdAt);
+---
+
+<SuperAdminLayout
+  title="Users"
+  currentTab="users"
+  breadcrumbs={[{ name: "Users", href: "/super-admin/users" }]}
+>
+  <div class="space-y-4">
+
+    <p class="text-sm text-gray-500">{allUsers.length} user{allUsers.length !== 1 ? "s" : ""} total</p>
+
+    {sorted.length === 0 && (
+      <div class="bg-white rounded-xl border border-dashed border-gray-200 p-8 text-center">
+        <p class="text-sm text-gray-500">No users yet. Users appear here after signing up.</p>
+      </div>
+    )}
+
+    {sorted.length > 0 && (
+      <div class="space-y-2">
+        {sorted.map((u) => (
+          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-gray-900 truncate">
+                {u.firstName || u.lastName ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "—"}
+              </p>
+              <p class="text-xs text-gray-500 truncate">{u.email}</p>
+              <p class="text-xs text-gray-400 font-mono truncate">{u.clerkId}</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0 ml-2">
+              {u.platformRole === "super_admin" ? (
+                <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                  Super Admin
+                </span>
+              ) : (
+                <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                  User
+                </span>
+              )}
+              <button
+                type="button"
+                class="toggle-role-btn text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                data-clerk-id={u.clerkId}
+                data-current-role={u.platformRole}
+              >
+                {u.platformRole === "super_admin" ? "Revoke" : "Make Admin"}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+
+  </div>
+</SuperAdminLayout>
+
+<script is:inline>
+  document.querySelectorAll('.toggle-role-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const newRole = btn.dataset.currentRole === 'super_admin' ? 'user' : 'super_admin';
+      const label = newRole === 'super_admin' ? 'Grant super admin?' : 'Revoke super admin?';
+      if (!confirm(label)) return;
+      try {
+        const res = await fetch('/api/super-admin/users/update-role', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clerkId: btn.dataset.clerkId, platformRole: newRole }),
+        });
+        if (!res.ok) throw new Error('Error updating role');
+        window.location.reload();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+</script>

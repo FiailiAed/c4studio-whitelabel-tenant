@@ -1,5 +1,5 @@
 ---
-import CoachLayout from "@layouts/CoachLayout.astro";
+import Layout from "@layouts/Layout.astro";
 import { UserButton, SignOutButton } from "@clerk/astro/components";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
@@ -9,73 +9,78 @@ if (!userId) return Astro.redirect("/");
 
 const clerkUser = await Astro.locals.currentUser();
 const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
-const convexUser = await client.query(api.users.getUserByClerkId, { clerkId: userId });
+
+const [platformUser, userTenants] = await Promise.all([
+  client.query(api.users.getUserByClerkId, { clerkId: userId }),
+  client.query(api.tenantMembers.listUserTenants, { clerkId: userId }),
+]);
 
 const fullName = [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") || "—";
 const email = clerkUser?.emailAddresses?.find((e) => e.id === clerkUser?.primaryEmailAddressId)?.emailAddress ?? "—";
 const memberSince = clerkUser?.createdAt
-  ? new Date(clerkUser.createdAt).toLocaleDateString("en-US", {
-      year: "numeric", month: "long", day: "numeric",
-    })
+  ? new Date(clerkUser.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
   : "—";
-
-const status = convexUser?.onboardStatus ?? "pending";
-
-const STATUS_CONFIG = {
-  pending: { label: "Pending", color: "bg-gray-100 text-gray-600" },
-  in_progress: { label: "In Progress", color: "bg-yellow-100 text-yellow-700" },
-  submitted: { label: "Under Review", color: "bg-blue-100 text-blue-700" },
-  done: { label: "Active", color: "bg-green-100 text-green-700" },
-} as const;
-
-const statusDisplay = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.pending;
 ---
 
-<CoachLayout title="Profile" currentTab="home" breadcrumbs={[{ name: "Profile", href: "/profile" }]}>
-  <div class="px-4 py-6 space-y-6">
+<Layout title="Profile" breadcrumbs={[{ name: "Profile", href: "/profile" }]}>
+  <main class="min-h-screen bg-gray-50 py-8 px-4">
+    <div class="max-w-md mx-auto space-y-4">
 
-    <!-- Identity -->
-    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
-      <div class="flex items-center gap-3">
-        <UserButton />
-        <div>
-          <p class="font-semibold text-gray-900">{fullName}</p>
-          <p class="text-sm text-gray-500">{email}</p>
+      <!-- Identity -->
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+        <div class="flex items-center gap-3">
+          <UserButton />
+          <div>
+            <p class="font-semibold text-gray-900">{fullName}</p>
+            <p class="text-sm text-gray-500">{email}</p>
+          </div>
+        </div>
+        <div class="border-t border-gray-100 pt-3 space-y-2">
+          <div class="flex justify-between text-sm">
+            <span class="text-gray-500">Member since</span>
+            <span class="text-gray-900">{memberSince}</span>
+          </div>
+          {platformUser?.platformRole === "super_admin" && (
+            <div class="flex justify-between text-sm items-center">
+              <span class="text-gray-500">Platform role</span>
+              <span class="text-xs font-medium bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5">
+                Super Admin
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      <div class="border-t border-gray-100 pt-3 space-y-2">
-        <div class="flex justify-between text-sm">
-          <span class="text-gray-500">Member since</span>
-          <span class="text-gray-900">{memberSince}</span>
+      <!-- Tenants -->
+      {userTenants.length > 0 && (
+        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-2">
+          <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Your Portals</h2>
+          <div class="space-y-1">
+            {userTenants.map(({ tenant, membership }) => (
+              <a
+                href={`/t/${tenant.slug}`}
+                class="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors"
+              >
+                <div>
+                  <p class="text-sm font-medium text-gray-900">{tenant.name}</p>
+                  <p class="text-xs text-gray-500 capitalize">{membership.tenantRole}</p>
+                </div>
+                <span class={`text-xs font-medium rounded-full px-2 py-0.5 ${membership.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                  {membership.status}
+                </span>
+              </a>
+            ))}
+          </div>
         </div>
-        <div class="flex justify-between text-sm items-center">
-          <span class="text-gray-500">Status</span>
-          <span class={`text-xs font-medium rounded-full px-2 py-0.5 ${statusDisplay.color}`}>
-            {statusDisplay.label}
-          </span>
-        </div>
+      )}
+
+      <!-- Sign out -->
+      <SignOutButton class="block w-full text-center border border-gray-200 text-gray-700 font-medium rounded-xl py-3 text-sm hover:bg-gray-50" />
+
+      <div class="text-center">
+        <a href="/" class="text-sm text-gray-500 hover:text-gray-700">&larr; Back to home</a>
       </div>
+
     </div>
-
-    <!-- Onboarding CTA for incomplete statuses -->
-    {(status === "pending" || status === "in_progress") && (
-      <a
-        href="/get-started"
-        class="block w-full text-center bg-indigo-600 text-white font-semibold rounded-xl py-3 text-sm hover:bg-indigo-700"
-      >
-        {status === "pending" ? "Start Onboarding →" : "Continue Onboarding →"}
-      </a>
-    )}
-
-    {status === "submitted" && (
-      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4">
-        <p class="text-sm text-blue-800">Your application is under review. An admin will approve it shortly.</p>
-      </div>
-    )}
-
-    <!-- Sign out -->
-    <SignOutButton class="block w-full text-center border border-gray-200 text-gray-700 font-medium rounded-xl py-3 text-sm hover:bg-gray-50" />
-
-  </div>
-</CoachLayout>
+  </main>
+</Layout>
