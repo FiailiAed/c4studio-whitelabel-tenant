@@ -1,0 +1,127 @@
+---
+import TenantLayout from "@layouts/TenantLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../../convex/_generated/api";
+
+const tenant = Astro.locals.tenant;
+const membership = Astro.locals.membership;
+const isImpersonating = Astro.locals.isImpersonating ?? false;
+
+if (!tenant) return Astro.redirect("/");
+
+const tenantRole = isImpersonating ? "admin" : (membership?.tenantRole ?? "member");
+if (tenantRole !== "admin") return Astro.redirect(`/t/${tenant.slug}`);
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const [members, allUsers] = await Promise.all([
+  client.query(api.tenantMembers.listTenantMembers, { tenantId: tenant._id }),
+  client.query(api.users.listAllUsers, {}),
+]);
+
+const memberDetails = members.map((m) => {
+  const user = allUsers.find((u) => u.clerkId === m.clerkId);
+  return { ...m, user };
+});
+---
+
+<TenantLayout
+  title="Members"
+  tenant={tenant}
+  currentTab="members"
+  tenantRole={tenantRole}
+  isImpersonating={isImpersonating}
+  breadcrumbs={[
+    { name: tenant.name, href: `/t/${tenant.slug}` },
+    { name: "Members", href: `/t/${tenant.slug}/members` },
+  ]}
+>
+  <div class="space-y-4">
+
+    <div id="error-banner" class="hidden bg-red-50 border border-red-200 rounded-xl p-3">
+      <p class="text-sm text-red-700" id="error-message"></p>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+      <h2 class="text-sm font-semibold text-gray-700">Add Member</h2>
+      <form id="add-member-form" class="space-y-3">
+        <input name="clerkId" type="text" placeholder="Clerk User ID (user_...)" required
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+        <div class="flex gap-2">
+          <input name="tenantRole" type="text" placeholder="Role (e.g. member, admin)" required value="member"
+            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+          <button type="submit"
+            class="shrink-0 bg-indigo-600 text-white font-medium rounded-lg px-4 py-2 text-sm hover:bg-indigo-500 transition-colors">
+            Add
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-2">
+      <h2 class="text-sm font-semibold text-gray-700">Members ({members.length})</h2>
+
+      {memberDetails.length === 0 && (
+        <p class="text-sm text-gray-400 text-center py-4">No members yet.</p>
+      )}
+
+      {memberDetails.map((m) => (
+        <div class="flex items-center justify-between rounded-lg px-3 py-2.5 hover:bg-gray-50">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-gray-900 truncate">
+              {m.user ? (`${m.user.firstName ?? ""} ${m.user.lastName ?? ""}`.trim() || m.user.email) : m.clerkId}
+            </p>
+            <p class="text-xs text-gray-500 capitalize">{m.tenantRole}</p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0 ml-2">
+            <span class={`text-xs font-medium rounded-full px-2 py-0.5 ${m.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+              {m.status}
+            </span>
+            <button
+              type="button"
+              class="remove-btn text-xs text-red-500 hover:text-red-700"
+              data-clerk-id={m.clerkId}
+              data-tenant-id={tenant._id}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+
+  </div>
+</TenantLayout>
+
+<script define:vars={{ tenantId: tenant._id }} is:inline>
+  document.getElementById('add-member-form')?.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(this).entries());
+    data.tenantId = tenantId;
+    try {
+      const res = await fetch('/api/super-admin/members/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Error adding member');
+      window.location.reload();
+    } catch (err) {
+      const banner = document.getElementById('error-banner');
+      document.getElementById('error-message').textContent = err.message;
+      banner.classList.remove('hidden');
+    }
+  });
+
+  document.querySelectorAll('.remove-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      if (!confirm('Remove this member?')) return;
+      try {
+        const res = await fetch('/api/super-admin/members/remove', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId: btn.dataset.tenantId, clerkId: btn.dataset.clerkId }),
+        });
+        if (!res.ok) throw new Error('Error removing member');
+        window.location.reload();
+      } catch (err) { alert(err.message); }
+    });
+  });
+</script>

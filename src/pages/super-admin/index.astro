@@ -1,0 +1,101 @@
+---
+import SuperAdminLayout from "@layouts/SuperAdminLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../convex/_generated/api";
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+const [allTenants, allUsers] = await Promise.all([
+  client.query(api.tenants.listTenants, {}),
+  client.query(api.users.listAllUsers, {}),
+]);
+
+const activeTenants = allTenants.filter((t) => t.status === "active").length;
+const totalTenants = allTenants.length;
+const totalUsers = allUsers.length;
+const superAdmins = allUsers.filter((u) => u.platformRole === "super_admin").length;
+---
+
+<SuperAdminLayout title="Platform Analytics" currentTab="analytics">
+  <div class="space-y-6">
+
+    <div class="grid grid-cols-2 gap-3">
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-1">
+        <p class="text-2xl font-bold text-gray-900">{totalTenants}</p>
+        <p class="text-xs text-gray-500">Total Tenants</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-1">
+        <p class="text-2xl font-bold text-green-600">{activeTenants}</p>
+        <p class="text-xs text-gray-500">Active Tenants</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-1">
+        <p class="text-2xl font-bold text-gray-900">{totalUsers}</p>
+        <p class="text-xs text-gray-500">Total Users</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-1">
+        <p class="text-2xl font-bold text-indigo-600">{superAdmins}</p>
+        <p class="text-xs text-gray-500">Super Admins</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+      <h2 class="text-sm font-semibold text-gray-700">Quick Actions</h2>
+      <div class="space-y-2">
+        <a
+          href="/super-admin/tenants/new"
+          class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+        >
+          <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Create New Tenant
+        </a>
+        <a
+          href="/super-admin/tenants"
+          class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          <svg class="size-5 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21" />
+          </svg>
+          Manage Tenants
+        </a>
+        <a
+          href="/super-admin/users"
+          class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          <svg class="size-5 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+          </svg>
+          View All Users
+        </a>
+      </div>
+    </div>
+
+    {allTenants.length > 0 && (
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+        <h2 class="text-sm font-semibold text-gray-700">Recent Tenants</h2>
+        <div class="space-y-1">
+          {allTenants.slice(0, 5).map((t) => (
+            <a
+              href={`/super-admin/tenants/${t._id}`}
+              class="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="inline-flex items-center justify-center h-6 w-6 rounded text-white text-xs font-bold shrink-0"
+                  style={`background-color: ${t.primaryColor ?? "#6366f1"}`}
+                >
+                  {t.name.slice(0, 2).toUpperCase()}
+                </span>
+                <span class="text-sm font-medium text-gray-900">{t.name}</span>
+              </div>
+              <span class={`text-xs font-medium rounded-full px-2 py-0.5 ${t.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                {t.status}
+              </span>
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
+  </div>
+</SuperAdminLayout>

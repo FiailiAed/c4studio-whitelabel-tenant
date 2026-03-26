@@ -11,10 +11,47 @@ export const getUserByClerkId = query({
   },
 });
 
-export const listUsers = query({
+export const listAllUsers = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("users").collect();
+  },
+});
+
+export const upsertUser = mutation({
+  args: {
+    clerkId: v.string(),
+    email: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    platformRole: v.optional(v.union(v.literal("super_admin"), v.literal("user"))),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .unique();
+
+    const now = Date.now();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        email: args.email,
+        firstName: args.firstName,
+        lastName: args.lastName,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("users", {
+        clerkId: args.clerkId,
+        email: args.email,
+        firstName: args.firstName,
+        lastName: args.lastName,
+        platformRole: args.platformRole ?? "user",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
   },
 });
 
@@ -31,61 +68,17 @@ export const deleteUser = mutation({
   },
 });
 
-export const upsertUser = mutation({
+export const updatePlatformRole = mutation({
   args: {
     clerkId: v.string(),
-    email: v.string(),
-    firstName: v.optional(v.string()),
-    lastName: v.optional(v.string()),
-    onboardStatus: v.optional(v.union(
-      v.literal("pending"),
-      v.literal("in_progress"),
-      v.literal("submitted"),
-      v.literal("done")
-    )),
-    role: v.union(v.literal("user"), v.literal("admin")),
+    platformRole: v.union(v.literal("super_admin"), v.literal("user")),
   },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
-      .unique();
-
-    const now = Date.now();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        ...args,
-        onboardStatus: existing.onboardStatus ?? args.onboardStatus ?? "pending",
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert("users", {
-        ...args,
-        onboardStatus: args.onboardStatus ?? "pending",
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-  },
-});
-
-export const updateOnboardStatus = mutation({
-  args: {
-    clerkId: v.string(),
-    status: v.union(
-      v.literal("pending"),
-      v.literal("in_progress"),
-      v.literal("submitted"),
-      v.literal("done")
-    ),
-  },
-  handler: async (ctx, { clerkId, status }) => {
+  handler: async (ctx, { clerkId, platformRole }) => {
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
       .unique();
     if (!existing) throw new Error(`User not found: ${clerkId}`);
-    await ctx.db.patch(existing._id, { onboardStatus: status, updatedAt: Date.now() });
+    await ctx.db.patch(existing._id, { platformRole, updatedAt: Date.now() });
   },
 });

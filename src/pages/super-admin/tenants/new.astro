@@ -1,0 +1,180 @@
+---
+import SuperAdminLayout from "@layouts/SuperAdminLayout.astro";
+---
+
+<SuperAdminLayout
+  title="New Tenant"
+  currentTab="tenants"
+  breadcrumbs={[
+    { name: "Tenants", href: "/super-admin/tenants" },
+    { name: "New", href: "/super-admin/tenants/new" },
+  ]}
+>
+  <div class="max-w-lg space-y-6">
+
+    <div id="error-banner" class="hidden bg-red-50 border border-red-200 rounded-xl p-3">
+      <p class="text-sm text-red-700" id="error-message"></p>
+    </div>
+
+    <form id="create-form" class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+
+      <div class="space-y-1.5">
+        <label for="name" class="block text-sm font-medium text-gray-700">Tenant Name <span class="text-red-500">*</span></label>
+        <input
+          id="name"
+          name="name"
+          type="text"
+          required
+          placeholder="Acme Corp"
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+        />
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="slug" class="block text-sm font-medium text-gray-700">Slug <span class="text-red-500">*</span></label>
+        <div class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500">
+          <span class="text-sm text-gray-400 shrink-0">/t/</span>
+          <input
+            id="slug"
+            name="slug"
+            type="text"
+            required
+            pattern="[a-z0-9][a-z0-9\-]*[a-z0-9]"
+            placeholder="acme-corp"
+            class="flex-1 text-sm text-gray-900 placeholder-gray-400 outline-none bg-transparent"
+          />
+        </div>
+        <p class="text-xs text-gray-400">Lowercase letters, numbers, hyphens only. Min 2 chars.</p>
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="primaryColor" class="block text-sm font-medium text-gray-700">Primary Color</label>
+        <div class="flex items-center gap-2">
+          <input
+            id="primaryColor-picker"
+            type="color"
+            value="#6366f1"
+            class="h-9 w-12 rounded border border-gray-300 cursor-pointer p-0.5"
+          />
+          <input
+            id="primaryColor"
+            name="primaryColor"
+            type="text"
+            value="#6366f1"
+            pattern="^#[0-9a-fA-F]{6}$"
+            placeholder="#6366f1"
+            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+          />
+        </div>
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="logoUrl" class="block text-sm font-medium text-gray-700">Logo URL</label>
+        <input
+          id="logoUrl"
+          name="logoUrl"
+          type="url"
+          placeholder="https://example.com/logo.png"
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+        />
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="customDomain" class="block text-sm font-medium text-gray-700">Custom Domain</label>
+        <input
+          id="customDomain"
+          name="customDomain"
+          type="text"
+          placeholder="portal.client.com"
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+        />
+        <p class="text-xs text-gray-400">Optional. For future custom domain routing.</p>
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="status" class="block text-sm font-medium text-gray-700">Status</label>
+        <select
+          id="status"
+          name="status"
+          class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+        >
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button
+          type="submit"
+          id="submit-btn"
+          class="flex-1 bg-indigo-600 text-white font-semibold rounded-xl py-2.5 text-sm hover:bg-indigo-500 transition-colors disabled:opacity-60"
+        >
+          Create Tenant
+        </button>
+        <a
+          href="/super-admin/tenants"
+          class="flex-1 text-center border border-gray-200 text-gray-700 font-medium rounded-xl py-2.5 text-sm hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </a>
+      </div>
+
+    </form>
+
+  </div>
+</SuperAdminLayout>
+
+<script is:inline>
+  // Sync color picker ↔ hex input
+  const picker = document.getElementById('primaryColor-picker');
+  const hexInput = document.getElementById('primaryColor');
+  picker?.addEventListener('input', function () { hexInput.value = picker.value; });
+  hexInput?.addEventListener('input', function () {
+    if (/^#[0-9a-fA-F]{6}$/.test(hexInput.value)) picker.value = hexInput.value;
+  });
+
+  // Auto-generate slug from name
+  const nameInput = document.getElementById('name');
+  const slugInput = document.getElementById('slug');
+  let userEditedSlug = false;
+  slugInput?.addEventListener('input', function () { userEditedSlug = true; });
+  nameInput?.addEventListener('input', function () {
+    if (userEditedSlug) return;
+    slugInput.value = nameInput.value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50);
+  });
+
+  // Form submit
+  document.getElementById('create-form')?.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+
+    const data = Object.fromEntries(new FormData(this).entries());
+    // Remove empty optional fields
+    if (!data.logoUrl) delete data.logoUrl;
+    if (!data.customDomain) delete data.customDomain;
+
+    try {
+      const res = await fetch('/api/super-admin/tenants/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Something went wrong');
+      window.location.href = '/super-admin/tenants/' + json.id;
+    } catch (err) {
+      const banner = document.getElementById('error-banner');
+      const msg = document.getElementById('error-message');
+      msg.textContent = err.message;
+      banner.classList.remove('hidden');
+      btn.disabled = false;
+      btn.textContent = 'Create Tenant';
+    }
+  });
+</script>
