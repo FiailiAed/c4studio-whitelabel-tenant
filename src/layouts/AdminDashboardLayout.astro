@@ -1,5 +1,6 @@
 ---
 import Analytics from '@vercel/analytics/astro';
+import SpeedInsights from "@vercel/speed-insights/astro";
 
 import '../styles/global.css';
 import Breadcrumb from '../components/Breadcrumb.astro';
@@ -37,6 +38,8 @@ const moreIsActive = (["drills", "documents", "config"] as string[]).includes(cu
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{title} — Admin</title>
   <Analytics />
+
+  <SpeedInsights />
 </head>
 <body class="h-full bg-gray-50">
 

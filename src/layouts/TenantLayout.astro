@@ -1,5 +1,6 @@
 ---
 import Analytics from '@vercel/analytics/astro';
+import SpeedInsights from "@vercel/speed-insights/astro";
 
 import '../styles/global.css';
 import Breadcrumb from '../components/Breadcrumb.astro';
@@ -45,6 +46,8 @@ const adminTabs = tabs.filter((t) => t.key === "home" || tenantRole === "admin" 
     }
   </style>
   <Analytics />
+
+  <SpeedInsights />
 </head>
 <body class="h-full bg-gray-50">
 
