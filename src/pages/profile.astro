@@ -2,7 +2,7 @@
 import Layout from "@layouts/Layout.astro";
 import { UserButton, SignOutButton } from "@clerk/astro/components";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../convex/_generated/api";
+import { api } from "@convex/_generated/api";
 
 const { userId } = Astro.locals.auth();
 if (!userId) return Astro.redirect("/");

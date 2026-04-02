@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../../../convex/_generated/api";
+import { api } from "@convex/_generated/api";
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const { userId } = locals.auth();

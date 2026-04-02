@@ -4,14 +4,14 @@
   "exclude": ["dist"],
   "compilerOptions": {
     "paths": {
-      "@blog/*": ["./src/blog/*"],
+      "@convex/*": ["./convex/*"],
       "@components/*": ["./src/components/*"],
-      "@react-comlayouts/*": ["./src/components/react/*"],
-      "@images/*": ["./src/images/*"],
       "@layouts/*": ["./src/layouts/*"],
+      "@pages/*": ["./src/pages/*"],
       "@styles/*": ["./src/styles/*"],
       "@markdown/*": ["./src/markdown/*"],
-      "@api/*": ["./src/pages/api/*"]
+      "@images/*": ["./src/images/*"],
+      "@blog/*": ["./src/blog/*"]
     }
   }
 }
