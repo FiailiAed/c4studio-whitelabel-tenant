@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { Webhook } from "svix";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../../convex/_generated/api";
+import { api } from "@convex/_generated/api";
 
 export const POST: APIRoute = async ({ request }) => {
   const webhookSecret = import.meta.env.CLERK_WEBHOOK_SECRET;

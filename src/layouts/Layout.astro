@@ -1,6 +1,9 @@
 ---
-import '../styles/global.css';
-import Breadcrumb from '../components/Breadcrumb.astro';
+import Analytics from '@vercel/analytics/astro';
+import SpeedInsights from "@vercel/speed-insights/astro";
+
+import '@styles/global.css';
+import Breadcrumb from '@components/Breadcrumb.astro';
 
 interface Props {
   title: string;
@@ -19,6 +22,9 @@ const { title, breadcrumbs = [] } = Astro.props;
 		<meta name="viewport" content="width=device-width" />
 		<meta name="generator" content={Astro.generator} />
         <title>{title}</title>
+        <Analytics />
+
+        <SpeedInsights />
 	</head>
 	<body>
         <Breadcrumb items={breadcrumbs} />
