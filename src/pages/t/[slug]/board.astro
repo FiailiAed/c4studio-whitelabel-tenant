@@ -1,0 +1,23 @@
+---
+import DashboardLayout from "@layouts/DashboardLayout.astro";
+import BoardApp from "@components/board/BoardApp";
+
+const { tenant, tenantId, isImpersonating, membership } = Astro.locals;
+
+if (!tenant || !tenantId) {
+  return Astro.redirect("/");
+}
+---
+
+<DashboardLayout
+  title="Board"
+  tenantName={tenant.name}
+  tenantSlug={tenant.slug}
+  tenantLogo={tenant.logoUrl}
+  tenantColor={tenant.primaryColor}
+  isImpersonating={isImpersonating}
+  convexTenantId={tenantId}
+  showSettings={isImpersonating || membership?.tenantRole === "admin"}
+>
+  <BoardApp client:load tenantId={tenantId} tenantSlug={tenant.slug} />
+</DashboardLayout>

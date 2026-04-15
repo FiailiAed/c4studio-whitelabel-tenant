@@ -1,0 +1,143 @@
+---
+import { ClientRouter } from "astro:transitions";
+import Analytics from '@vercel/analytics/astro';
+import SpeedInsights from "@vercel/speed-insights/astro";
+import { UserButton } from "@clerk/astro/components";
+import TenantSettingsIsland from '@components/board/TenantSettingsIsland';
+import '@styles/global.css';
+
+interface Props {
+  title: string;
+  tenantName: string;
+  tenantSlug: string;
+  tenantLogo?: string | null;
+  tenantColor?: string | null;
+  isImpersonating?: boolean;
+  convexTenantId?: string;
+  showSettings?: boolean;
+}
+
+const {
+  title,
+  tenantName,
+  tenantSlug,
+  tenantLogo,
+  tenantColor,
+  isImpersonating = false,
+  convexTenantId,
+  showSettings = false,
+} = Astro.props;
+
+const color = tenantColor ?? "#635bff";
+---
+
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" href="/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title} — {tenantName}</title>
+
+  <!-- Dark mode: run before paint to avoid flash -->
+  <script is:inline>
+    (function () {
+      const stored = localStorage.getItem("theme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (stored === "dark" || (!stored && prefersDark)) {
+        document.documentElement.classList.add("dark");
+      }
+    })();
+  </script>
+
+  <style define:vars={{ primaryColor: color }}>
+    :root {
+      --color-primary: var(--primaryColor);
+      --color-primary-hover: color-mix(in srgb, var(--primaryColor) 85%, black);
+    }
+  </style>
+
+  <Analytics />
+  <SpeedInsights />
+  <ClientRouter />
+</head>
+<body class="h-full bg-slate-50 dark:bg-[#0a0e17] transition-colors">
+
+  {isImpersonating && (
+    <div class="fixed top-0 inset-x-0 z-50 bg-amber-500 text-white text-sm py-2 px-4 flex items-center justify-between">
+      <span class="font-medium">Impersonating: {tenantName}</span>
+      <form method="POST" action="/api/super-admin/impersonation/exit">
+        <button type="submit" class="text-white underline text-xs font-medium hover:no-underline">
+          Exit Impersonation
+        </button>
+      </form>
+    </div>
+  )}
+
+  <!-- Top nav -->
+  <header class={`sticky top-0 z-50 bg-white dark:bg-[#1e293b] border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between${isImpersonating ? " mt-10" : ""}`}>
+    <a href={`/t/${tenantSlug}`} class="flex items-center gap-3 hover:opacity-80 transition-opacity">
+      {tenantLogo ? (
+        <img src={tenantLogo} alt={tenantName} class="h-7 w-auto object-contain" />
+      ) : (
+        <span
+          class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-white text-xs font-bold shrink-0"
+          style={`background-color: ${color}`}
+        >
+          {tenantName.slice(0, 2).toUpperCase()}
+        </span>
+      )}
+      <p class="text-base font-semibold tracking-tight text-slate-900 dark:text-white">{tenantName}</p>
+    </a>
+
+    <div class="flex items-center gap-2">
+      <!-- Tenant settings gear (admin/impersonator only) -->
+      {showSettings && convexTenantId && (
+        <TenantSettingsIsland
+          client:load
+          convexTenantId={convexTenantId}
+          tenantName={tenantName}
+          primaryColor={tenantColor}
+          logoUrl={tenantLogo}
+        />
+      )}
+
+      <!-- Dark mode toggle -->
+      <button
+        id="theme-toggle"
+        type="button"
+        aria-label="Toggle dark mode"
+        class="flex items-center justify-center size-8 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+      >
+        <!-- Sun icon (shown in dark mode) -->
+        <svg class="size-5 hidden dark:block" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+        </svg>
+        <!-- Moon icon (shown in light mode) -->
+        <svg class="size-5 block dark:hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+        </svg>
+      </button>
+
+      <!-- Clerk UserButton (native Astro component) -->
+      <UserButton />
+    </div>
+  </header>
+
+  <!-- Main content -->
+  <main class="min-h-[calc(100vh-57px)]">
+    <slot />
+  </main>
+
+</body>
+</html>
+
+<script>
+  document.addEventListener('click', (e) => {
+    if ((e.target as Element).closest?.('#theme-toggle')) {
+      const isDark = document.documentElement.classList.toggle("dark");
+      localStorage.setItem("theme", isDark ? "dark" : "light");
+    }
+  });
+</script>

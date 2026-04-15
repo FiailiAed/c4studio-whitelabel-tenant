@@ -2,6 +2,40 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  invoices: defineTable({
+    clientId: v.id("clients"),
+    stripeInvoiceId: v.string(),
+    amountPaid: v.number(),
+    currency: v.string(),
+    paidAt: v.number(),
+  }).index("by_client", ["clientId"]),
+
+  clients: defineTable({
+    tenantId: v.id("tenants"),
+    name: v.string(),
+    abbrev: v.string(),
+    themeColor: v.string(),
+    stripeCustomerId: v.optional(v.string()),
+  }).index("by_tenant", ["tenantId"]),
+
+  tasks: defineTable({
+    clientId: v.id("clients"),
+    title: v.string(),
+    status: v.union(
+      v.literal("todo"),
+      v.literal("pending"),
+      v.literal("done"),
+    ),
+    createdAt: v.number(),
+    createdBy: v.string(),
+    resources: v.optional(v.array(v.object({
+      label: v.string(),
+      url: v.string(),
+    }))),
+  })
+    .index("by_client", ["clientId"])
+    .index("by_client_and_status", ["clientId", "status"]),
+
   tenants: defineTable({
     name: v.string(),
     slug: v.string(),

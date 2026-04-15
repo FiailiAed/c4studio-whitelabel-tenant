@@ -1,0 +1,35 @@
+---
+import DashboardLayout from "@layouts/DashboardLayout.astro";
+import ClientDetail from "@components/board/ClientDetail";
+
+const { tenant, tenantId, isImpersonating, membership } = Astro.locals;
+const { id } = Astro.params;
+
+if (!tenant || !tenantId || !id) {
+  return Astro.redirect("/");
+}
+---
+
+<DashboardLayout
+  title="Client Detail"
+  tenantName={tenant.name}
+  tenantSlug={tenant.slug}
+  tenantLogo={tenant.logoUrl}
+  tenantColor={tenant.primaryColor}
+  isImpersonating={isImpersonating}
+  convexTenantId={tenantId}
+  showSettings={isImpersonating || membership?.tenantRole === "admin"}
+>
+  <div class="py-2">
+    <a
+      href={`/t/${tenant.slug}/board`}
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 ml-4 mt-3 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+    >
+      <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+      </svg>
+      Back to board
+    </a>
+  </div>
+  <ClientDetail client:load clientId={id} />
+</DashboardLayout>
