@@ -2,6 +2,39 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  clients: defineTable({
+    tenantId: v.id("tenants"),
+    name: v.string(),
+    email: v.string(),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    priority: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+    contacts: v.array(
+      v.object({
+        name: v.string(),
+        email: v.string(),
+        role: v.string(),
+        phone: v.string(),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenant", ["tenantId"])
+    .index("by_tenant_and_status", ["tenantId", "status"]),
+
+  tasks: defineTable({
+    clientId: v.id("clients"),
+    tenantId: v.id("tenants"),
+    title: v.string(),
+    status: v.union(v.literal("todo"), v.literal("pending"), v.literal("done")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_client", ["clientId"])
+    .index("by_tenant", ["tenantId"])
+    .index("by_tenant_and_status", ["tenantId", "status"]),
+
+
   tenants: defineTable({
     name: v.string(),
     slug: v.string(),

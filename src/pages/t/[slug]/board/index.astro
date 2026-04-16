@@ -1,0 +1,500 @@
+---
+import TenantLayout from "@layouts/TenantLayout.astro";
+
+const tenant = Astro.locals.tenant;
+const membership = Astro.locals.membership;
+const isImpersonating = Astro.locals.isImpersonating ?? false;
+
+if (!tenant) return Astro.redirect("/");
+
+const tenantRole = isImpersonating ? "admin" : (membership?.tenantRole ?? "member");
+const convexUrl = import.meta.env.PUBLIC_CONVEX_URL;
+---
+
+<TenantLayout
+  title="Board"
+  tenant={tenant}
+  currentTab="board"
+  tenantRole={tenantRole}
+  isImpersonating={isImpersonating}
+>
+  <!-- Server → client data bridge -->
+  <div
+    id="board-root"
+    data-tenant-id={tenant._id}
+    data-convex-url={convexUrl}
+    data-tenant-slug={tenant.slug}
+    class="hidden"
+    aria-hidden="true"
+  ></div>
+
+  <!-- Tailwind JIT safelist for dynamically assigned classes -->
+  <div
+    aria-hidden="true"
+    class="hidden
+      bg-red-100 text-red-700 border-red-200
+      bg-blue-100 text-blue-700 border-blue-200
+      bg-green-100 text-green-700 border-green-200
+      bg-indigo-100 text-indigo-700 border-indigo-200
+      bg-orange-100 text-orange-700 border-orange-200
+      bg-rose-100 text-rose-700 border-rose-200
+      bg-cyan-100 text-cyan-700 border-cyan-200
+      bg-violet-100 text-violet-700 border-violet-200
+      bg-yellow-100 text-yellow-700 border-yellow-200
+      bg-amber-100 text-amber-700 border-amber-200
+      bg-purple-100 text-purple-700 border-purple-200
+      bg-teal-100 text-teal-700 border-teal-200
+      bg-slate-400 bg-amber-400 bg-emerald-500
+      line-through"
+  ></div>
+
+  <!-- Controls bar -->
+  <div class="flex items-center gap-3 mb-5 flex-wrap">
+    <!-- Search -->
+    <div class="relative flex-1 min-w-40">
+      <svg
+        class="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400 pointer-events-none"
+        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+      <input
+        id="search-input"
+        type="text"
+        placeholder="Filter by client or task..."
+        class="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-200 rounded-lg
+               text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2
+               focus:ring-indigo-300 transition-all"
+      />
+    </div>
+
+    <!-- Filter tabs -->
+    <div class="flex rounded-lg border border-slate-200 overflow-hidden">
+      <button
+        id="filter-all"
+        class="px-3 py-2 text-sm font-medium bg-slate-800 text-white transition-colors"
+      >All</button>
+      <button
+        id="filter-pending"
+        class="px-3 py-2 text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 transition-colors"
+      >Pending Review</button>
+    </div>
+
+    <!-- Add client -->
+    <button
+      id="open-modal-btn"
+      class="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm
+             font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+    >
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+      </svg>
+      Add Client
+    </button>
+  </div>
+
+  <!-- Active client count -->
+  <p class="text-xs text-slate-400 mb-4"><span id="client-count">Loading...</span></p>
+
+  <!-- Board grid -->
+  <div
+    id="board-container"
+    class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 pb-4"
+  ></div>
+
+  <!-- ─── Templates ────────────────────────────────────────────────────── -->
+
+  <template id="client-card-template">
+    <div
+      data-card
+      class="bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col"
+    >
+      <!-- Card header -->
+      <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 rounded-t-lg">
+        <div class="flex items-center gap-3 min-w-0">
+          <div
+            data-avatar
+            class="w-8 h-8 rounded flex items-center justify-center font-bold text-xs border flex-shrink-0"
+          ></div>
+          <h3 data-client-name class="text-sm font-bold text-slate-700 truncate"></h3>
+        </div>
+        <a
+          data-client-link
+          href="#"
+          class="text-xs text-slate-400 hover:text-indigo-600 transition-colors flex-shrink-0 ml-2"
+        >Details →</a>
+      </div>
+      <!-- Tasks + inline input -->
+      <div class="p-4 flex-1 flex flex-col gap-2">
+        <div data-task-list class="flex flex-col gap-2"></div>
+        <input
+          type="text"
+          data-action="new-task"
+          placeholder="Add task… (Enter)"
+          class="mt-1 text-xs text-slate-500 placeholder-slate-400 bg-transparent border-0
+                 border-b border-dashed border-slate-200 py-1 focus:outline-none
+                 focus:border-indigo-300 transition-colors w-full"
+        />
+      </div>
+    </div>
+  </template>
+
+  <template id="task-item-template">
+    <div
+      data-task-item
+      data-action="toggle-task"
+      class="flex items-start gap-2 cursor-pointer group py-0.5"
+    >
+      <span data-status-dot class="mt-1 h-2 w-2 rounded-full flex-shrink-0 transition-colors"></span>
+      <span data-task-title class="text-xs leading-relaxed text-slate-600 group-hover:text-slate-800 transition-colors"></span>
+    </div>
+  </template>
+
+  <!-- ─── Add Client Modal ─────────────────────────────────────────────── -->
+
+  <div id="add-client-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="modal-backdrop" class="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-base font-bold text-slate-800">Add Client</h2>
+        <button
+          id="close-modal-btn"
+          class="text-slate-400 hover:text-slate-600 transition-colors"
+          aria-label="Close"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <form id="add-client-form" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5">Client Name *</label>
+          <input
+            name="name"
+            required
+            type="text"
+            autocomplete="off"
+            class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg
+                   focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5">Email *</label>
+          <input
+            name="email"
+            required
+            type="email"
+            class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg
+                   focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
+          />
+        </div>
+        <div class="flex gap-3">
+          <div class="flex-1">
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
+            <select
+              name="status"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white
+                     focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <div class="flex-1">
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Priority</label>
+            <select
+              name="priority"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white
+                     focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
+            >
+              <option value="high">High</option>
+              <option value="medium" selected>Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex gap-3 pt-1">
+          <button
+            type="button"
+            id="cancel-modal-btn"
+            class="flex-1 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100
+                   rounded-lg hover:bg-slate-200 transition-colors"
+          >Cancel</button>
+          <button
+            type="submit"
+            class="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600
+                   rounded-lg hover:bg-indigo-700 transition-colors"
+          >Add Client</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── Client-side script ───────────────────────────────────────────── -->
+  <script>
+    import { ConvexClient } from "convex/browser";
+    import { api } from "@convex/_generated/api";
+    import type { Id } from "@convex/_generated/dataModel";
+
+    // ── Types ──────────────────────────────────────────────────────────────
+    type TaskStatus = "todo" | "pending" | "done";
+
+    interface Task {
+      _id: Id<"tasks">;
+      title: string;
+      status: TaskStatus;
+    }
+
+    interface BoardClient {
+      _id: Id<"clients">;
+      name: string;
+      tasks: Task[];
+    }
+
+    // ── Server data ────────────────────────────────────────────────────────
+    const root = document.getElementById("board-root")!;
+    const tenantId = root.dataset.tenantId as Id<"tenants">;
+    const convexUrl = root.dataset.convexUrl!;
+    const tenantSlug = root.dataset.tenantSlug!;
+
+    // ── State ──────────────────────────────────────────────────────────────
+    let currentFilter: "all" | "pending" = "all";
+    let currentSearch = "";
+
+    // ── Avatar ─────────────────────────────────────────────────────────────
+    const AVATAR_PALETTE = [
+      "bg-red-100 text-red-700 border-red-200",
+      "bg-blue-100 text-blue-700 border-blue-200",
+      "bg-green-100 text-green-700 border-green-200",
+      "bg-indigo-100 text-indigo-700 border-indigo-200",
+      "bg-orange-100 text-orange-700 border-orange-200",
+      "bg-rose-100 text-rose-700 border-rose-200",
+      "bg-cyan-100 text-cyan-700 border-cyan-200",
+      "bg-violet-100 text-violet-700 border-violet-200",
+      "bg-yellow-100 text-yellow-700 border-yellow-200",
+      "bg-amber-100 text-amber-700 border-amber-200",
+      "bg-purple-100 text-purple-700 border-purple-200",
+      "bg-teal-100 text-teal-700 border-teal-200",
+    ];
+
+    function avatarClasses(name: string): string {
+      return AVATAR_PALETTE[name.charCodeAt(0) % AVATAR_PALETTE.length];
+    }
+
+    function initials(name: string): string {
+      return name
+        .split(/\s+/)
+        .map((w) => w[0] ?? "")
+        .join("")
+        .toUpperCase()
+        .slice(0, 3);
+    }
+
+    // ── Status ─────────────────────────────────────────────────────────────
+    const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
+      todo: "pending",
+      pending: "done",
+      done: "todo",
+    };
+
+    const STATUS_DOT_CLASS: Record<TaskStatus, string> = {
+      todo: "bg-slate-400",
+      pending: "bg-amber-400",
+      done: "bg-emerald-500",
+    };
+
+    function applyTaskStatus(taskEl: HTMLElement, status: TaskStatus): void {
+      const dot = taskEl.querySelector<HTMLElement>("[data-status-dot]")!;
+      const title = taskEl.querySelector<HTMLElement>("[data-task-title]")!;
+      dot.className = `mt-1 h-2 w-2 rounded-full flex-shrink-0 transition-colors ${STATUS_DOT_CLASS[status]}`;
+      title.className =
+        status === "done"
+          ? "text-xs leading-relaxed line-through text-slate-400 transition-colors"
+          : "text-xs leading-relaxed text-slate-600 group-hover:text-slate-800 transition-colors";
+      taskEl.dataset.status = status;
+    }
+
+    // ── Render ─────────────────────────────────────────────────────────────
+    function renderBoard(data: BoardClient[]): void {
+      const container = document.getElementById("board-container")!;
+      const countEl = document.getElementById("client-count");
+      const cardTpl = document.getElementById("client-card-template") as HTMLTemplateElement;
+      const taskTpl = document.getElementById("task-item-template") as HTMLTemplateElement;
+
+      if (countEl) {
+        countEl.textContent = `${data.length} Active Client${data.length !== 1 ? "s" : ""}`;
+      }
+
+      while (container.firstChild) container.removeChild(container.firstChild);
+
+      if (data.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "col-span-full text-center py-16 text-sm text-slate-400";
+        empty.textContent = "No clients yet. Add your first client to get started.";
+        container.appendChild(empty);
+        return;
+      }
+
+      for (const client of data) {
+        const cardFrag = cardTpl.content.cloneNode(true) as DocumentFragment;
+        const cardEl = cardFrag.querySelector<HTMLElement>("[data-card]")!;
+
+        // Avatar — safe: textContent only
+        const avatarEl = cardFrag.querySelector<HTMLElement>("[data-avatar]")!;
+        avatarEl.className = `w-8 h-8 rounded flex items-center justify-center font-bold text-xs border flex-shrink-0 ${avatarClasses(client.name)}`;
+        avatarEl.textContent = initials(client.name);
+
+        // Client name — safe: textContent
+        cardFrag.querySelector<HTMLElement>("[data-client-name]")!.textContent = client.name;
+
+        // Details link
+        const link = cardFrag.querySelector<HTMLAnchorElement>("[data-client-link]")!;
+        link.href = `/t/${tenantSlug}/board/client/${client._id}`;
+
+        // New task input
+        const newTaskInput = cardFrag.querySelector<HTMLInputElement>("[data-action='new-task']")!;
+        newTaskInput.dataset.clientId = client._id;
+
+        // Tasks
+        const taskList = cardFrag.querySelector<HTMLElement>("[data-task-list]")!;
+        for (const task of client.tasks) {
+          const taskFrag = taskTpl.content.cloneNode(true) as DocumentFragment;
+          const taskEl = taskFrag.querySelector<HTMLElement>("[data-task-item]")!;
+          taskEl.dataset.taskId = task._id;
+          taskEl.dataset.status = task.status;
+          // Safe: textContent not innerHTML
+          taskFrag.querySelector<HTMLElement>("[data-task-title]")!.textContent = task.title;
+          applyTaskStatus(taskEl, task.status);
+          taskList.appendChild(taskFrag);
+        }
+
+        // Filter metadata
+        cardEl.dataset.clientNameLower = client.name.toLowerCase();
+        cardEl.dataset.taskTitlesLower = client.tasks.map((t) => t.title.toLowerCase()).join(" ");
+        cardEl.dataset.hasPending = client.tasks.some((t) => t.status === "pending")
+          ? "true"
+          : "false";
+
+        container.appendChild(cardFrag);
+      }
+
+      applyFilters();
+    }
+
+    // ── Filters ────────────────────────────────────────────────────────────
+    function applyFilters(): void {
+      for (const card of document.querySelectorAll<HTMLElement>("[data-card]")) {
+        const name = card.dataset.clientNameLower ?? "";
+        const titles = card.dataset.taskTitlesLower ?? "";
+        const matchSearch =
+          !currentSearch || name.includes(currentSearch) || titles.includes(currentSearch);
+        const matchFilter =
+          currentFilter === "all" || card.dataset.hasPending === "true";
+        card.classList.toggle("hidden", !matchSearch || !matchFilter);
+      }
+    }
+
+    // ── Convex + Clerk auth ────────────────────────────────────────────────
+    declare global {
+      interface Window {
+        Clerk: {
+          session?: { getToken(opts: { template: string }): Promise<string | null> };
+        };
+      }
+    }
+
+    const convex = new ConvexClient(convexUrl);
+    convex.setAuth(async () => {
+      if (!window.Clerk?.session) return null;
+      return await window.Clerk.session.getToken({ template: "convex" });
+    });
+
+    convex.onUpdate(api.board.getBoard, { tenantId }, (data) => {
+      renderBoard(data as BoardClient[]);
+    });
+
+    // ── Event delegation — clicks (task toggle) ────────────────────────────
+    document.getElementById("board-container")!.addEventListener("click", (e) => {
+      const taskEl = (e.target as HTMLElement).closest<HTMLElement>("[data-action='toggle-task']");
+      if (!taskEl) return;
+      const taskId = taskEl.dataset.taskId as Id<"tasks">;
+      const current = taskEl.dataset.status as TaskStatus;
+      const next = NEXT_STATUS[current];
+      applyTaskStatus(taskEl, next); // optimistic
+      convex.mutation(api.tasks.updateTaskStatus, { taskId, status: next }).catch(() => {
+        applyTaskStatus(taskEl, current); // revert on failure
+      });
+    });
+
+    // ── Event delegation — Enter key (inline task creation) ────────────────
+    document.getElementById("board-container")!.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const input = (e.target as HTMLElement).closest<HTMLInputElement>(
+        "[data-action='new-task']",
+      );
+      if (!input) return;
+      const title = input.value.trim();
+      if (!title) return;
+      const clientId = input.dataset.clientId as Id<"clients">;
+      input.value = "";
+      convex.mutation(api.tasks.createTask, { clientId, tenantId, title });
+    });
+
+    // ── Search ─────────────────────────────────────────────────────────────
+    document.getElementById("search-input")!.addEventListener("input", (e) => {
+      currentSearch = (e.target as HTMLInputElement).value.toLowerCase().trim();
+      applyFilters();
+    });
+
+    // ── Filter buttons ─────────────────────────────────────────────────────
+    const filterAllBtn = document.getElementById("filter-all")!;
+    const filterPendingBtn = document.getElementById("filter-pending")!;
+    const BTN_ACTIVE = "px-3 py-2 text-sm font-medium bg-slate-800 text-white transition-colors";
+    const BTN_INACTIVE =
+      "px-3 py-2 text-sm font-medium bg-white text-slate-600 hover:bg-slate-50 transition-colors";
+
+    function setFilter(f: "all" | "pending"): void {
+      currentFilter = f;
+      filterAllBtn.className = f === "all" ? BTN_ACTIVE : BTN_INACTIVE;
+      filterPendingBtn.className = f === "pending" ? BTN_ACTIVE : BTN_INACTIVE;
+      applyFilters();
+    }
+
+    filterAllBtn.addEventListener("click", () => setFilter("all"));
+    filterPendingBtn.addEventListener("click", () => setFilter("pending"));
+
+    // ── Modal ──────────────────────────────────────────────────────────────
+    const modal = document.getElementById("add-client-modal")!;
+    const openModal = () => modal.classList.remove("hidden");
+    const closeModal = () => modal.classList.add("hidden");
+
+    document.getElementById("open-modal-btn")!.addEventListener("click", openModal);
+    document.getElementById("cancel-modal-btn")!.addEventListener("click", closeModal);
+    document.getElementById("close-modal-btn")!.addEventListener("click", closeModal);
+    document.getElementById("modal-backdrop")!.addEventListener("click", closeModal);
+
+    const addClientForm = document.getElementById("add-client-form") as HTMLFormElement;
+    addClientForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(addClientForm);
+      const name = (fd.get("name") as string).trim();
+      const email = (fd.get("email") as string).trim();
+      const status = fd.get("status") as "active" | "inactive";
+      const priority = fd.get("priority") as "high" | "medium" | "low";
+      if (!name || !email) return;
+      closeModal();
+      addClientForm.reset();
+      await convex.mutation(api.clients.createClient, {
+        tenantId,
+        name,
+        email,
+        status,
+        priority,
+        contacts: [],
+      });
+    });
+  </script>
+</TenantLayout>
