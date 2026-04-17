@@ -1,0 +1,286 @@
+---
+import TenantLayout from "@layouts/TenantLayout.astro";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@convex/_generated/api";
+import type { Doc } from "@convex/_generated/dataModel";
+
+const tenant = Astro.locals.tenant;
+const membership = Astro.locals.membership;
+const isImpersonating = Astro.locals.isImpersonating ?? false;
+
+if (!tenant) return Astro.redirect("/");
+
+const isAdmin = isImpersonating || membership?.tenantRole === "admin" || membership?.tenantRole === "coach";
+
+const showSuccess = Astro.url.searchParams.get("success") === "true";
+
+// Authenticate with Convex
+const token = await Astro.locals.auth().getToken({ template: "convex" });
+
+const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
+if (token) client.setAuth(token);
+
+// Always fetch active programs (parent view) — no auth needed
+// Admins get all programs
+const [programs, roster] = await Promise.all([
+  isAdmin && token
+    ? client.query(api.programs.listAllByTenant, { tenantSlug: tenant.slug })
+    : client.query(api.programs.listActiveByTenant, { tenantSlug: tenant.slug }),
+  isAdmin && token
+    ? client.query(api.rosters.getAdminRoster, { tenantSlug: tenant.slug })
+    : Promise.resolve(null),
+]);
+
+// Parent's own registrations
+let parentRegistrations: { id: string; status: string; playerName: string; programName: string }[] = [];
+if (!isAdmin && token) {
+  const clerkUser = await Astro.locals.currentUser();
+  const clerkId = clerkUser?.id;
+  if (clerkId) {
+    const convexUser = await client.query(api.users.getUserByClerkId, { clerkId });
+    if (convexUser) {
+      parentRegistrations = await client.query(api.registrations.getParentRegistrations, {
+        parentId: convexUser._id,
+      });
+    }
+  }
+}
+
+const formatPrice = (cents: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+
+const statusBadge = (status: string) => {
+  if (status === "PAID") return "bg-green-50 text-green-700 ring-green-600/20";
+  if (status === "REFUNDED") return "bg-gray-50 text-gray-600 ring-gray-500/20";
+  return "bg-yellow-50 text-yellow-800 ring-yellow-600/20";
+};
+
+const statusLabel = (status: string) => {
+  if (status === "PAID") return "Paid";
+  if (status === "REFUNDED") return "Refunded";
+  return "Pending";
+};
+
+const programStatusBadge = (status: string) => {
+  if (status === "ACTIVE") return "bg-green-50 text-green-700 ring-green-600/20";
+  if (status === "CLOSED") return "bg-red-50 text-red-700 ring-red-600/20";
+  return "bg-gray-50 text-gray-600 ring-gray-500/20";
+};
+
+const regUrl = (programId: string) =>
+  `${Astro.url.origin}/t/${tenant.slug}/register/${programId}`;
+---
+
+<TenantLayout
+  title="Registrations"
+  tenant={tenant}
+  currentTab="regs"
+  tenantRole={membership?.tenantRole}
+  isImpersonating={isImpersonating}
+>
+  <div class="max-w-4xl mx-auto space-y-8">
+
+    <!-- Success Banner -->
+    {showSuccess && (
+      <div
+        id="success-banner"
+        class="flex items-start gap-3 rounded-lg bg-green-50 border border-green-200 px-4 py-3"
+      >
+        <svg class="size-5 text-green-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <div class="flex-1">
+          <p class="text-sm font-semibold text-green-800">Registration confirmed!</p>
+          <p class="text-sm text-green-700">Payment received. You'll get an email receipt from Stripe shortly.</p>
+        </div>
+        <button
+          onclick="document.getElementById('success-banner').remove()"
+          class="text-green-600 hover:text-green-800 transition-colors"
+          aria-label="Dismiss"
+        >
+          <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    )}
+
+    <!-- ─── Programs Section ──────────────────────────────────────────────── -->
+    <section>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h1 class="text-lg font-bold text-gray-900">Programs</h1>
+          <p class="text-sm text-gray-500 mt-0.5">
+            {isAdmin ? "All programs for this organization." : "Open programs available for registration."}
+          </p>
+        </div>
+        {isAdmin && (
+          <a
+            href={`/t/${tenant.slug}/programs/new`}
+            class="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 transition-colors"
+          >
+            <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            New Program
+          </a>
+        )}
+      </div>
+
+      {programs.length === 0 ? (
+        <div class="text-center border-2 border-dashed border-gray-200 rounded-xl p-10 bg-white">
+          <svg class="mx-auto size-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+          </svg>
+          <h3 class="mt-3 text-sm font-semibold text-gray-900">No programs yet</h3>
+          <p class="mt-1 text-sm text-gray-500">
+            {isAdmin ? "Create your first program to get started." : "Check back soon for upcoming programs."}
+          </p>
+          {isAdmin && (
+            <a
+              href={`/t/${tenant.slug}/programs/new`}
+              class="mt-4 inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+            >
+              Create Program
+            </a>
+          )}
+        </div>
+      ) : (
+        <div class="space-y-3">
+          {(programs as Doc<"programs">[]).map((program) => (
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div class="px-4 py-4 flex items-start justify-between gap-4">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <h2 class="text-sm font-semibold text-gray-900 truncate">{program.name}</h2>
+                    <span
+                      class={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${programStatusBadge(program.status)}`}
+                    >
+                      {program.status}
+                    </span>
+                  </div>
+                  {program.description && (
+                    <p class="mt-1 text-sm text-gray-500 line-clamp-2">{program.description}</p>
+                  )}
+                  <div class="mt-2 flex items-center gap-3 text-sm text-gray-500">
+                    <span class="font-semibold text-gray-800">{formatPrice(program.priceInCents)}</span>
+                    {program.capacity && <span>· {program.capacity} spots</span>}
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-2 shrink-0">
+                  {isAdmin ? (
+                    <>
+                      <button
+                        data-reg-url={regUrl(program._id)}
+                        onclick="navigator.clipboard.writeText(this.dataset.regUrl).then(() => { this.textContent = 'Copied!'; setTimeout(() => this.textContent = 'Copy Link', 1500); })"
+                        class="rounded-md bg-gray-50 px-2.5 py-1.5 text-xs font-medium text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-100 transition-colors"
+                      >
+                        Copy Link
+                      </button>
+                      <a
+                        href={`/t/${tenant.slug}/programs/${program._id}/edit`}
+                        class="rounded-md bg-gray-50 px-2.5 py-1.5 text-xs font-medium text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-100 transition-colors"
+                      >
+                        Edit
+                      </a>
+                    </>
+                  ) : program.status === "ACTIVE" ? (
+                    <a
+                      href={`/t/${tenant.slug}/register/${program._id}`}
+                      class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+                    >
+                      Register →
+                    </a>
+                  ) : (
+                    <span class="text-xs text-gray-400">Closed</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+
+    <!-- ─── Admin: Full Roster ────────────────────────────────────────────── -->
+    {isAdmin && (
+      <section>
+        <h2 class="text-lg font-bold text-gray-900 mb-4">Full Roster</h2>
+
+        {!roster || roster.length === 0 ? (
+          <div class="text-center border-2 border-dashed border-gray-200 rounded-xl p-10 bg-white">
+            <svg class="mx-auto size-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+            </svg>
+            <h3 class="mt-3 text-sm font-semibold text-gray-900">No players registered</h3>
+            <p class="mt-1 text-sm text-gray-500">Share a registration link to get started.</p>
+          </div>
+        ) : (
+          <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="py-3 pl-4 pr-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Player</th>
+                    <th class="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Grade</th>
+                    <th class="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Program</th>
+                    <th class="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">US Lac #</th>
+                    <th class="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  {(roster as { id: string; playerName: string; grade: number; usLacrosseNumber: string; programName: string; status: string }[]).map((row) => (
+                    <tr class="hover:bg-gray-50 transition-colors">
+                      <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900">{row.playerName}</td>
+                      <td class="whitespace-nowrap px-3 py-3 text-sm text-gray-500">{row.grade}</td>
+                      <td class="whitespace-nowrap px-3 py-3 text-sm text-gray-500">{row.programName}</td>
+                      <td class="whitespace-nowrap px-3 py-3 text-sm font-mono text-gray-500">{row.usLacrosseNumber}</td>
+                      <td class="whitespace-nowrap px-3 py-3 text-sm">
+                        <span class={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${statusBadge(row.status)}`}>
+                          {statusLabel(row.status)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
+    )}
+
+    <!-- ─── Parent: My Registrations ─────────────────────────────────────── -->
+    {!isAdmin && (
+      <section>
+        <h2 class="text-lg font-bold text-gray-900 mb-4">My Registrations</h2>
+
+        {parentRegistrations.length === 0 ? (
+          <div class="text-center border-2 border-dashed border-gray-200 rounded-xl p-10 bg-white">
+            <svg class="mx-auto size-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" />
+            </svg>
+            <h3 class="mt-3 text-sm font-semibold text-gray-900">No registrations yet</h3>
+            <p class="mt-1 text-sm text-gray-500">Register your player for an available program above.</p>
+          </div>
+        ) : (
+          <div class="space-y-2">
+            {parentRegistrations.map((reg) => (
+              <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-4 py-3 shadow-sm">
+                <div>
+                  <p class="text-sm font-medium text-gray-900">{reg.playerName}</p>
+                  <p class="text-xs text-gray-500 mt-0.5">{reg.programName}</p>
+                </div>
+                <span class={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${statusBadge(reg.status)}`}>
+                  {statusLabel(reg.status)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    )}
+
+  </div>
+</TenantLayout>

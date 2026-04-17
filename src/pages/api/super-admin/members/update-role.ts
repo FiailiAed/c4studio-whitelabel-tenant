@@ -26,12 +26,19 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return new Response(JSON.stringify({ error: "tenantId and clerkId are required" }), { status: 400 });
   }
 
+  const validRoles = ["admin", "coach", "parent"] as const;
+  type TenantRole = typeof validRoles[number];
+
+  if (body.tenantRole && !validRoles.includes(body.tenantRole as TenantRole)) {
+    return new Response(JSON.stringify({ error: "Invalid role. Must be admin, coach, or parent." }), { status: 400 });
+  }
+
   try {
     const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
     await client.mutation(api.tenantMembers.updateMemberRole, {
       tenantId: body.tenantId as Id<"tenants">,
       clerkId: body.clerkId,
-      ...(body.tenantRole ? { tenantRole: body.tenantRole } : {}),
+      ...(body.tenantRole ? { tenantRole: body.tenantRole as TenantRole } : {}),
       ...(body.status ? { status: body.status as "active" | "inactive" | "invited" } : {}),
     });
     return new Response(JSON.stringify({ success: true }), { status: 200 });

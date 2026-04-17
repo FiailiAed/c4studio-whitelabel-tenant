@@ -61,9 +61,19 @@ const tenants = await client.query(api.tenants.listTenants, {});
                   <p class="text-xs text-gray-400">/t/{t.slug}</p>
                 </div>
               </div>
-              <span class={`text-xs font-medium rounded-full px-2 py-0.5 ${t.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+              <div class="grid grid-cols-2 grid-rows-1 gap-2">
+              <span class={`text-xs font-medium rounded-full p-2.5 ${t.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
                 {t.status}
               </span>
+              <!-- Impersonate -->
+              <form method="POST" action="/api/super-admin/impersonation/start">
+                  <input type="hidden" name="tenantId" value={t._id} />
+                  <button type="submit" class="w-full border border-amber-300 text-amber-700 font-medium rounded-xl p-2.5 text-xs hover:bg-amber-50 transition-colors">
+                      Impersonate Tenant
+                  </button>
+              </form>
+
+            </div>
             </div>
           </a>
         ))}

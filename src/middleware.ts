@@ -50,7 +50,8 @@ export const onRequest = clerkMiddleware(async (auth, context, next) => {
 
   const { userId } = auth();
   if (!userId) {
-    return Response.redirect(new URL("/", context.request.url));
+    const redirectUrl = encodeURIComponent(pathname);
+    return Response.redirect(new URL(`/sign-in?redirect_url=${redirectUrl}`, context.request.url));
   }
 
   const client = new ConvexHttpClient(import.meta.env.PUBLIC_CONVEX_URL);
@@ -82,6 +83,18 @@ export const onRequest = clerkMiddleware(async (auth, context, next) => {
     if (!platformUser || platformUser.platformRole !== "super_admin") {
       return Response.redirect(new URL("/", context.request.url));
     }
+    return next();
+  }
+
+  // ─── /t/[slug]/register/*: Clerk-auth only, no membership required ──────────
+  // Parents click a shared registration link without being a tenant member yet.
+  if (pathname.match(/^\/t\/[^/]+\/register\//)) {
+    return next();
+  }
+
+  // ─── /t/[slug]/join/*: Clerk-auth only, no membership required ───────────────
+  // New members click an invite link to join a tenant.
+  if (pathname.match(/^\/t\/[^/]+\/join\//)) {
     return next();
   }
 

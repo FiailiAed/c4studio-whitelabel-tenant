@@ -48,7 +48,11 @@ export const addMember = mutation({
   args: {
     tenantId: v.id("tenants"),
     clerkId: v.string(),
-    tenantRole: v.string(),
+    tenantRole: v.union(
+      v.literal("admin"),
+      v.literal("coach"),
+      v.literal("parent"),
+    ),
   },
   handler: async (ctx, { tenantId, clerkId, tenantRole }) => {
     const existing = await ctx.db
@@ -76,7 +80,11 @@ export const updateMemberRole = mutation({
   args: {
     tenantId: v.id("tenants"),
     clerkId: v.string(),
-    tenantRole: v.optional(v.string()),
+    tenantRole: v.optional(v.union(
+      v.literal("admin"),
+      v.literal("coach"),
+      v.literal("parent"),
+    )),
     status: v.optional(
       v.union(v.literal("active"), v.literal("inactive"), v.literal("invited")),
     ),
